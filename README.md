@@ -1,7 +1,7 @@
 # jokoway
 
 <p align="center">
-  <img src="images/jokoway-logo.png" width="100%" alt="jokoway logo">
+  <img src="https://raw.githubusercontent.com/hijriyan/jokoway/refs/heads/main/images/jokoway-logo.png" width="100%" alt="jokoway logo">
 </p>
 
 Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs. Inspired by Traefik’s expressive routing rules and Kong’s DB-less declarative configuration model.

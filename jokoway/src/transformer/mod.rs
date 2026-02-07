@@ -1,0 +1,262 @@
+pub mod models;
+pub mod parser;
+pub mod registry;
+
+pub use models::{RequestTransformer, ResponseTransformer};
+pub use parser::{parse_response_transformers, parse_transformers};
+pub use registry::{
+    parse_custom_request_transformers, parse_custom_response_transformers,
+    register_request_transformer, register_response_transformer,
+};
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_response_transformers, parse_transformers};
+    use crate::transformer::models::{RequestTransformer, ResponseTransformer};
+    use crate::transformer::registry::{
+        register_request_transformer, register_response_transformer,
+    };
+    use pingora::http::{RequestHeader, ResponseHeader};
+    use winnow::ascii::multispace0;
+    use winnow::token::literal as tag;
+    use winnow::{Parser, Result};
+
+    #[test]
+    fn test_request_transformer_parsing_and_execution() {
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        req.insert_header("X-Old", "remove-me").unwrap();
+        req.insert_header("Host", "original").unwrap();
+
+        // Test multiple transformers separated by semicolon
+        let script = "ReplaceHeader(`Host`, `new-host`) ; DeleteHeader(`X-Old`) ; AppendHeader(`X-New`, `value`)";
+        let transformer = parse_transformers(script).unwrap();
+
+        transformer.transform_request(&mut req);
+
+        assert_eq!(req.headers.get("Host").unwrap(), "new-host");
+        assert!(req.headers.get("X-Old").is_none());
+        assert_eq!(req.headers.get("X-New").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_response_transformer_parsing_and_execution() {
+        let mut res = ResponseHeader::build(200, None).unwrap();
+        res.insert_header("X-Old", "remove-me").unwrap();
+        res.insert_header("Server", "original").unwrap();
+
+        // Test multiple transformers separated by semicolon
+        let script = "ReplaceHeader(`Server`, `new-server`) ; DeleteHeader(`X-Old`) ; AppendHeader(`X-New`, `value`)";
+        let transformer = parse_response_transformers(script).unwrap();
+
+        transformer.transform_response(&mut res);
+
+        assert_eq!(res.headers.get("Server").unwrap(), "new-server");
+        assert!(res.headers.get("X-Old").is_none());
+        assert_eq!(res.headers.get("X-New").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_query_transformer() {
+        // Initial request with query params
+        let mut req = RequestHeader::build("GET", b"/path?foo=bar&baz=qux", None).unwrap();
+
+        // Script to modify query params
+        let script =
+            "ReplaceQuery(`foo`, `updated`) ; DeleteQuery(`baz`) ; AppendQuery(`new`, `param`)";
+        let transformer = parse_transformers(script).unwrap();
+
+        transformer.transform_request(&mut req);
+
+        let uri = req.uri.to_string();
+        // Check that foo is updated
+        assert!(uri.contains("foo=updated"));
+        // Check that baz is removed
+        assert!(!uri.contains("baz="));
+        // Check that new param is appended
+        assert!(uri.contains("new=param"));
+    }
+
+    #[derive(Debug)]
+    struct CustomRequestTransformer;
+    impl RequestTransformer for CustomRequestTransformer {
+        fn transform_request(&self, req: &mut RequestHeader) {
+            let _ = req.insert_header("X-Custom-Req", "true");
+        }
+    }
+
+    #[derive(Debug)]
+    struct CustomResponseTransformer;
+    impl ResponseTransformer for CustomResponseTransformer {
+        fn transform_response(&self, res: &mut ResponseHeader) {
+            let _ = res.insert_header("X-Custom-Res", "true");
+        }
+    }
+
+    #[test]
+    fn test_custom_transformer_registry() {
+        // Define custom parsers
+        fn parse_my_req_transformer(input: &mut &str) -> Result<Box<dyn RequestTransformer>> {
+            (tag("MyReqTransformer"), multispace0, '(', ')')
+                .map(|_| Box::new(CustomRequestTransformer) as Box<dyn RequestTransformer>)
+                .parse_next(input)
+        }
+
+        fn parse_my_res_transformer(input: &mut &str) -> Result<Box<dyn ResponseTransformer>> {
+            (tag("MyResTransformer"), multispace0, '(', ')')
+                .map(|_| Box::new(CustomResponseTransformer) as Box<dyn ResponseTransformer>)
+                .parse_next(input)
+        }
+
+        // Register them
+        register_request_transformer(parse_my_req_transformer);
+        register_response_transformer(parse_my_res_transformer);
+
+        // Parse and test request transformer
+        let script_req = "MyReqTransformer()";
+        let transformer_req = parse_transformers(script_req).unwrap();
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        transformer_req.transform_request(&mut req);
+        assert_eq!(req.headers.get("X-Custom-Req").unwrap(), "true");
+
+        // Parse and test response transformer
+        let script_res = "MyResTransformer()";
+        let transformer_res = parse_response_transformers(script_res).unwrap();
+        let mut res = ResponseHeader::build(200, None).unwrap();
+        transformer_res.transform_response(&mut res);
+        assert_eq!(res.headers.get("X-Custom-Res").unwrap(), "true");
+    }
+
+    #[test]
+    fn test_strip_prefix_transformer() {
+        // Test basic stripping
+        let mut req = RequestHeader::build("GET", b"/api/v1/users", None).unwrap();
+        let script = "StripPrefix(`/api/v1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/users");
+
+        // Test stripping resulting in empty (should become /)
+        let mut req = RequestHeader::build("GET", b"/api/v1", None).unwrap();
+        let script = "StripPrefix(`/api/v1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/");
+
+        // Test stripping with query params
+        let mut req = RequestHeader::build("GET", b"/api/v1/search?q=foo", None).unwrap();
+        let script = "StripPrefix(`/api/v1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/search");
+        assert_eq!(req.uri.query().unwrap(), "q=foo");
+
+        // Test no match
+        let mut req = RequestHeader::build("GET", b"/other/path", None).unwrap();
+        let script = "StripPrefix(`/api/v1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/other/path");
+    }
+
+    #[test]
+    fn test_add_prefix_transformer() {
+        // Test basic prefix addition
+        let mut req = RequestHeader::build("GET", b"/users", None).unwrap();
+        let script = "AddPrefix(`/api/v1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/api/v1/users");
+
+        // Test prefix addition with query params
+        let mut req = RequestHeader::build("GET", b"/search?q=foo", None).unwrap();
+        let script = "AddPrefix(`/api`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/api/search");
+        assert_eq!(req.uri.query().unwrap(), "q=foo");
+
+        // Test prefix addition to root path
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        let script = "AddPrefix(`/v2`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/v2/");
+    }
+
+    #[test]
+    fn test_rewrite_path_transformer() {
+        // Test basic path rewrite (literal match)
+        let mut req = RequestHeader::build("GET", b"/old/path", None).unwrap();
+        let script = "RewritePath(`^/old/path$`, `/new/path`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/new/path");
+
+        // Test path rewrite with query params preserved
+        let mut req = RequestHeader::build("GET", b"/old?foo=bar", None).unwrap();
+        let script = "RewritePath(`^/old$`, `/completely/different`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/completely/different");
+        assert_eq!(req.uri.query().unwrap(), "foo=bar");
+
+        // Test rewrite to root
+        let mut req = RequestHeader::build("GET", b"/some/deep/path", None).unwrap();
+        let script = "RewritePath(`^/some/deep/path$`, `/`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/");
+
+        // Test regex with capture groups
+        let mut req = RequestHeader::build("GET", b"/api/v1/users", None).unwrap();
+        let script = "RewritePath(`^/api/(.*)`, `/v2/$1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/v2/v1/users");
+
+        // Test regex with multiple capture groups
+        let mut req = RequestHeader::build("GET", b"/api/users/123", None).unwrap();
+        let script = "RewritePath(`^/api/([^/]+)/([0-9]+)$`, `/$1/id/$2`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/users/id/123");
+
+        // Test regex that doesn't match (path should remain unchanged)
+        let mut req = RequestHeader::build("GET", b"/other/path", None).unwrap();
+        let script = "RewritePath(`^/api/(.*)`, `/v2/$1`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.uri.path(), "/other/path");
+    }
+
+    #[test]
+    fn test_set_method_transformer() {
+        // Test changing GET to POST
+        let mut req = RequestHeader::build("GET", b"/resource", None).unwrap();
+        let script = "SetMethod(`POST`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.method, http::Method::POST);
+
+        // Test changing POST to PUT
+        let mut req = RequestHeader::build("POST", b"/resource", None).unwrap();
+        let script = "SetMethod(`PUT`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.method, http::Method::PUT);
+
+        // Test changing to DELETE
+        let mut req = RequestHeader::build("GET", b"/resource", None).unwrap();
+        let script = "SetMethod(`DELETE`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.method, http::Method::DELETE);
+
+        // Test changing to PATCH
+        let mut req = RequestHeader::build("POST", b"/resource", None).unwrap();
+        let script = "SetMethod(`PATCH`)";
+        let transformer = parse_transformers(script).unwrap();
+        transformer.transform_request(&mut req);
+        assert_eq!(req.method, http::Method::PATCH);
+    }
+}
