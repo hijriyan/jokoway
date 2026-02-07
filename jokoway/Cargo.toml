@@ -1,0 +1,36 @@
+[package]
+name = "jokoway"
+version = "0.1.0-alpha.0"
+edition = "2024"
+license = "MIT"
+description = "Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs. Inspired by Traefik’s expressive routing rules and Kong’s DB-less declarative configuration model."
+authors = ["Hijriyan <april@kuli.dev>"]
+readme = "../README.md"
+repository = "https://github.com/hijriyan/jokoway"
+
+[dependencies]
+pingora = { version = "0.7.0", features = ["lb", "proxy", "openssl"] }
+async-trait = "0.1"
+bytes = "1"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_yaml = "0.9"
+winnow = "0.7.3"
+url = "2.5.8"
+http = "1.4.0"
+arc-swap = "1.8.0"
+regex = "1.12.2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+rcgen = "0.14.7"
+log = "0.4.29"
+env_logger = "0.11.8"
+serde_json = "1.0.149"
+dashmap = "6.1.0"
+x509-parser = "0.18.0"
+openssl = "0.10.75"
+# tldextract-rs = { git = "https://github.com/emo-crab/tldextract-rs" }
+psl = "2"
+prometheus = "0.13"
+flate2 = "1.1.0"
+hickory-resolver = { version = "0.24", features = ["tokio", "tokio-runtime"] }
+once_cell = "1.21.3"
