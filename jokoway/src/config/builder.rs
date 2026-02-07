@@ -1,5 +1,5 @@
 use super::models::{
-    AcmeSettings, RootConfig, ServerConf, Service, SslSettings, Upstream, JokowayConfig,
+    AcmeSettings, JokowayConfig, RootConfig, ServerConf, Service, SslSettings, Upstream,
 };
 use serde_yaml;
 use std::fs::File;
@@ -65,11 +65,6 @@ impl ConfigBuilder {
 
     pub fn with_acme(mut self, acme: AcmeSettings) -> Self {
         self.config.acme = Some(acme);
-        self
-    }
-
-    pub fn with_metrics(mut self, listen: String) -> Self {
-        self.config.metrics_listen = Some(listen);
         self
     }
 

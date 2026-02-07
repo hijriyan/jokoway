@@ -1,11 +1,11 @@
-use crate::config::models::{ServerConf, JokowayConfig};
+use crate::config::models::{JokowayConfig, ServerConf};
 #[cfg(feature = "acme-extension")]
 use crate::extensions::acme::{AcmeExtension, AcmeFilter};
 use crate::extensions::dns::{DnsExtension, DnsResolver};
 use crate::extensions::http::HttpExtension;
 use crate::extensions::https::HttpsExtension;
 use crate::server::context::AppCtx;
-use crate::server::extension::{WebsocketExtension, JokowayExtension, JokowayFilter};
+use crate::server::extension::{JokowayExtension, JokowayFilter, WebsocketExtension};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
 use pingora::server::Server;
@@ -40,8 +40,6 @@ impl App {
             websocket_extensions: custom_websocket_extensions,
             app_ctx: AppCtx::new(),
         };
-
-        app.add_extension(crate::extensions::metrics::MetricsExtension);
 
         // Register ACME extension if configured
         // Must be added before HttpsExtension so HttpsExtension can find AcmeManager in AppCtx

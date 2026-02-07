@@ -1517,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1535,7 +1535,6 @@ dependencies = [
  "once_cell",
  "openssl",
  "pingora",
- "prometheus",
  "psl",
  "rcgen",
  "regex",

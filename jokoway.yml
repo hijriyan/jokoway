@@ -30,8 +30,6 @@ jokoway:
   ssl: *ssl_settings
   acme: *acme_settings
 
-  metrics_listen: "[::]:9090"
-
   upstreams:
     - name: "ups_searchengine"
       peer_options: *peer_options

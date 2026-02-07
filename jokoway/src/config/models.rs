@@ -18,7 +18,7 @@ pub struct JokowayConfig {
     pub api: Option<ApiSettings>,
     pub ssl: Option<SslSettings>,
     pub acme: Option<AcmeSettings>,
-    pub metrics_listen: Option<String>,
+
     #[serde(default)]
     pub upstreams: Vec<Upstream>,
     #[serde(default)]

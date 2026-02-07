@@ -30,8 +30,7 @@ pub struct RouteContext {
     pub ws_client_buf: BytesMut,
     pub ws_upstream_buf: BytesMut,
     pub rewrite_host: Option<String>,
-    pub start_time: std::time::Instant,
-    pub upstream_start_time: Option<std::time::Instant>,
+
     pub ws_client_decompressor: Option<Decompress>,
     pub ws_upstream_decompressor: Option<Decompress>,
     pub compression_algo: Option<CompressionAlgo>,
@@ -49,8 +48,7 @@ impl RouteContext {
             ws_client_buf: BytesMut::with_capacity(4096),
             ws_upstream_buf: BytesMut::with_capacity(4096),
             rewrite_host: None,
-            start_time: std::time::Instant::now(),
-            upstream_start_time: None,
+
             ws_client_decompressor: None,
             ws_upstream_decompressor: None,
             compression_algo: None,

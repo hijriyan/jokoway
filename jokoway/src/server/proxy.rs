@@ -1,10 +1,10 @@
-use crate::config::models::{PeerOptions as ConfigPeerOptions, JokowayConfig};
+use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions};
 use crate::error::JokowayError;
-use crate::extensions::metrics::PrometheusBackend;
+
 use crate::server::context::{AppCtx, RouteContext};
 use crate::server::extension::{
-    WebsocketDirection, WebsocketError, WebsocketErrorAction, WebsocketExtension,
-    WebsocketMessageAction, JokowayFilter,
+    JokowayFilter, WebsocketDirection, WebsocketError, WebsocketErrorAction, WebsocketExtension,
+    WebsocketMessageAction,
 };
 use crate::server::router::Router;
 use crate::server::upstream::UpstreamManager;
@@ -142,7 +142,6 @@ pub struct JokowayProxy {
     pub websocket_extensions: Arc<Vec<Arc<dyn WebsocketExtension>>>,
     pub app_ctx: Arc<AppCtx>,
     pub upstream_manager: Arc<UpstreamManager>,
-    pub metrics: Option<Arc<PrometheusBackend>>,
 }
 
 impl JokowayProxy {
@@ -159,8 +158,6 @@ impl JokowayProxy {
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
         })?;
-        let metrics = app_ctx.get::<PrometheusBackend>();
-
         Ok(JokowayProxy {
             config,
             router,
@@ -168,7 +165,6 @@ impl JokowayProxy {
             websocket_extensions,
             app_ctx,
             upstream_manager,
-            metrics,
         })
     }
 }
@@ -253,10 +249,6 @@ impl ProxyHttp for JokowayProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool, Box<Error>> {
-        if let Some(metrics) = &self.metrics {
-            metrics.inc_active_connections();
-        }
-
         // Fast path: check filters first
         for filter in self.filters.iter() {
             if filter.request_filter(session, ctx, &self.app_ctx).await? {
@@ -287,26 +279,13 @@ impl ProxyHttp for JokowayProxy {
         }
 
         // Route matching with early return
-        let route_start = std::time::Instant::now();
         let match_result = self.router.match_request(req_header);
-
-        if let Some(metrics) = &self.metrics {
-            metrics.observe_router_duration(route_start.elapsed().as_secs_f64());
-        }
 
         if let Some(match_result) = match_result {
             log::debug!("Route matched: upstream={}", match_result.upstream_name);
 
             if let Some(transformer) = &match_result.req_transformer {
-                let transform_start = std::time::Instant::now();
                 transformer.transform_request(req_header);
-
-                if let Some(metrics) = &self.metrics {
-                    metrics.observe_transformer_duration(
-                        transform_start.elapsed().as_secs_f64(),
-                        "request",
-                    );
-                }
             }
 
             ctx.upstream_name = Some(match_result.upstream_name);
@@ -391,7 +370,6 @@ impl ProxyHttp for JokowayProxy {
             })?;
         }
 
-        ctx.upstream_start_time = Some(std::time::Instant::now());
         Ok(())
     }
 
@@ -411,15 +389,7 @@ impl ProxyHttp for JokowayProxy {
             if ctx.is_upgrade {
                 return Ok(());
             }
-            let transform_start = std::time::Instant::now();
             transformer.transform_response(upstream_response);
-
-            if let Some(metrics) = &self.metrics {
-                metrics.observe_transformer_duration(
-                    transform_start.elapsed().as_secs_f64(),
-                    "response",
-                );
-            }
         }
         Ok(())
     }
@@ -467,7 +437,6 @@ impl ProxyHttp for JokowayProxy {
                         &self.websocket_extensions,
                         WebsocketDirection::DownstreamToUpstream,
                         frame,
-                        self.metrics.as_ref(),
                         decompressor,
                     ) {
                         WebsocketMessageAction::Forward(updated) => {
@@ -567,7 +536,6 @@ impl ProxyHttp for JokowayProxy {
                         &self.websocket_extensions,
                         WebsocketDirection::UpstreamToDownstream,
                         frame,
-                        self.metrics.as_ref(),
                         decompressor,
                     ) {
                         WebsocketMessageAction::Forward(updated) => {
@@ -622,38 +590,15 @@ impl ProxyHttp for JokowayProxy {
         Ok(None)
     }
 
-    async fn logging(&self, session: &mut Session, _e: Option<&Error>, ctx: &mut Self::CTX) {
-        if let Some(metrics) = &self.metrics {
-            metrics.dec_active_connections();
-
-            let status = session
-                .response_written()
-                .map(|resp| resp.status.as_u16().to_string())
-                .unwrap_or_else(|| "0".to_string());
-
-            metrics.inc_requests_total(&status);
-
-            // Record total latency
-            metrics.observe_request_duration(ctx.start_time.elapsed().as_secs_f64(), "total");
-
-            // Record upstream latency if applicable
-            if let Some(upstream_start) = ctx.upstream_start_time {
-                metrics
-                    .observe_request_duration(upstream_start.elapsed().as_secs_f64(), "upstream");
-            }
-        }
-    }
+    async fn logging(&self, _session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {}
 }
 
 fn apply_ws_extensions(
     extensions: &[Arc<dyn WebsocketExtension>],
     direction: WebsocketDirection,
     mut frame: WsFrame,
-    metrics: Option<&Arc<PrometheusBackend>>,
     decompressor: Option<&mut flate2::Decompress>,
 ) -> WebsocketMessageAction {
-    let start = std::time::Instant::now();
-
     // Decompress if RSV1 is set (permessage-deflate)
     let original_payload = frame.payload.clone();
     let was_compressed = frame.rsv1;
@@ -703,14 +648,6 @@ fn apply_ws_extensions(
         action = WebsocketMessageAction::Forward(final_frame);
     }
 
-    if let Some(metrics) = metrics {
-        let direction_label = match direction {
-            WebsocketDirection::UpstreamToDownstream => "downstream",
-            WebsocketDirection::DownstreamToUpstream => "upstream",
-        };
-        metrics.observe_ws_extension_duration(start.elapsed().as_secs_f64(), direction_label);
-    }
-
     action
 }
 
@@ -748,7 +685,7 @@ fn close_frame(payload: Option<Vec<u8>>) -> WsFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{Upstream, UpstreamServer, JokowayConfig};
+    use crate::config::models::{JokowayConfig, Upstream, UpstreamServer};
     use crate::extensions::dns::DnsResolver;
     use crate::server::context::AppCtx;
     use crate::server::router::{ALL_PROTOCOLS, Router};
@@ -786,7 +723,6 @@ mod tests {
             &extensions,
             WebsocketDirection::UpstreamToDownstream,
             frame,
-            None,
             None,
         ) {
             WebsocketMessageAction::Forward(updated) => {
