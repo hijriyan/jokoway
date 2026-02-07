@@ -7,7 +7,7 @@
 Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs. Inspired by Traefik’s expressive routing rules and Kong’s DB-less declarative configuration model.
 
 <p align="center">
-  This is not intended for use in a production environment. This project is actually for learning and experimenting with Rust.
+  <strike>This is not intended for use in a production environment.</strike> This project is actually for learning and experimenting with Rust.
 </p>
 
 <p align="center">
@@ -36,4 +36,4 @@ cargo build --release
 ./target/release/jokoway -c jokoway.yml
 ```
 
-see [jokoway.yml](jokoway.yml) for an example config.
+see [jokoway.yml](https://github.com/hijriyan/jokoway/blob/main/jokoway.yml) for an example config.

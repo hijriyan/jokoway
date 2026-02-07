@@ -3,12 +3,8 @@ resolver = "2"
 members = ["jokoway"]
 
 [profile.release]
-opt-level = 3      # Maximum optimization for speed
+opt-level = 3     # Maximum optimization for speed
 lto = "fat"
-codegen-units = 16 # Parallel codegen for faster compilation
-strip = true       # Strip symbols to reduce binary size
-panic = "abort"    # Smaller binaries, slightly faster
-
-[profile.release-ci]
-inherits = "release"
 codegen-units = 1
+strip = true      # Strip symbols to reduce binary size
+panic = "abort"   # Smaller binaries, slightly faster

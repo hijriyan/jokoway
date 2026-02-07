@@ -12,7 +12,7 @@ x-ssl-settings: &ssl_settings
   cacert: null
   server_cert: null
   server_key: null
-  ssl_min_version: "TLS1.2"
+  ssl_min_version: "TLS1.0"
   ssl_max_version: "TLS1.3"
   cipher_suites:
     tls12: null
@@ -21,37 +21,29 @@ x-ssl-settings: &ssl_settings
 x-acme-settings: &acme_settings
   ca_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
   email: "admin@example.com"
-  storage: "letsencrypt/acme.json"
+  storage: "letsencrypt/staging.json"
   challenge: "http-01" # http-01 or tls-alpn-01
 
 jokoway:
-  http_listen: "[::]:2023"
-  https_listen: "[::]:1823"
+  http_listen: "[::]:2014"
+  https_listen: "[::]:2024"
   ssl: *ssl_settings
   acme: *acme_settings
 
   upstreams:
-    - name: "ups_searchengine"
+    - name: "httpbin-upstream"
       peer_options: *peer_options
       servers:
-        - host: google.com:443
-          weight: 50
-          peer_options:
-            <<: *peer_options
-            sni: "google.com"
-        - host: duckduckgo.com:443
-          weight: 100
-          peer_options:
-            <<: *peer_options
+        - host: httpbin.kuli.dev:443
+        - host: httpbingo.org:443
 
   services:
-    - name: "se_service"
-      host: "ups_searchengine"
+    - name: "httpbin-service"
+      host: "httpbin-upstream"
       protocols:
         - "http"
         - "https"
       routes:
-        - name: "se_router"
+        - name: "httpbin-router"
           rules:
             - rule: "PathPrefix(`/`)"
-              priority: 100
