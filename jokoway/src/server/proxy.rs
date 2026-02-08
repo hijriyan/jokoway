@@ -119,10 +119,7 @@ impl CachedPeerConfig {
             peer_options.tcp_recv_buf = Some(tcp_recv_buf);
         }
         if let Some(ref curves) = self.options.curves {
-            // Leak the string to get a 'static reference
-            // This is acceptable since peer configurations are typically long-lived
-            let curves_static: &'static str = Box::leak(curves.clone().into_boxed_str());
-            peer_options.curves = Some(curves_static);
+            peer_options.curves = Some(Box::leak(curves.clone().into_boxed_str()));
         }
         if let Some(tcp_fast_open) = self.options.tcp_fast_open {
             peer_options.tcp_fast_open = tcp_fast_open;

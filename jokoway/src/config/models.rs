@@ -81,7 +81,7 @@ pub struct PeerOptions {
     pub verify_cert: Option<bool>,
     pub verify_hostname: Option<bool>,
     pub tcp_recv_buf: Option<usize>,
-    pub curves: Option<String>, // simplified
+    pub curves: Option<String>,
     pub tcp_fast_open: Option<bool>,
     pub cacert: Option<String>,
     pub client_cert: Option<String>,
