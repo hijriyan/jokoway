@@ -1,5 +1,5 @@
-use crate::router::matcher::*;
-use crate::router::registry::parse_custom_rules;
+use crate::matcher::*;
+use crate::registry::parse_custom_rules;
 use winnow::Parser;
 use winnow::Result;
 use winnow::ascii::multispace0;
@@ -31,7 +31,7 @@ fn parse_host_regexp(input: &mut &str) -> Result<Box<dyn Matcher>> {
         delimited('(', parse_quoted_str, ')'),
     )
         .verify_map(|(_, _, pattern)| {
-            crate::router::matcher::compile_cached_regex(pattern)
+            crate::matcher::compile_cached_regex(pattern)
                 .ok()
                 .map(|regex| {
                     Box::new(HostRegexpMatcher {
@@ -63,7 +63,7 @@ fn parse_path_regexp(input: &mut &str) -> Result<Box<dyn Matcher>> {
         delimited('(', parse_quoted_str, ')'),
     )
         .verify_map(|(_, _, pattern)| {
-            crate::router::matcher::compile_cached_regex(pattern)
+            crate::matcher::compile_cached_regex(pattern)
                 .ok()
                 .map(|regex| {
                     Box::new(PathRegexpMatcher {
@@ -117,7 +117,7 @@ fn parse_header_regexp(input: &mut &str) -> Result<Box<dyn Matcher>> {
         ),
     )
         .verify_map(|(_, _, (name, _, pattern))| {
-            crate::router::matcher::compile_cached_regex(pattern)
+            crate::matcher::compile_cached_regex(pattern)
                 .ok()
                 .map(|regex| {
                     Box::new(HeaderRegexpMatcher {
@@ -144,7 +144,7 @@ fn parse_query_regexp(input: &mut &str) -> Result<Box<dyn Matcher>> {
         ),
     )
         .verify_map(|(_, _, (key, _, pattern))| {
-            crate::router::matcher::compile_cached_regex(pattern)
+            crate::matcher::compile_cached_regex(pattern)
                 .ok()
                 .map(|regex| {
                     Box::new(QueryRegexpMatcher {

@@ -1,9 +1,9 @@
 use arc_swap::ArcSwap;
 use std::sync::{Arc, Mutex};
 
-use crate::config::models::{ServiceProtocol, JokowayConfig};
-use crate::router::parse_rule;
-use crate::transformer::{
+use crate::config::models::{JokowayConfig, ServiceProtocol};
+use jokoway_rules::parse_rule;
+use jokoway_transformer::{
     RequestTransformer, ResponseTransformer, parse_response_transformers, parse_transformers,
 };
 
@@ -17,7 +17,7 @@ pub const ALL_PROTOCOLS: [ServiceProtocol; 4] = [
     ServiceProtocol::Wss,
 ];
 
-use crate::router::Matcher;
+use jokoway_rules::Matcher;
 
 pub struct RuntimeRoute {
     pub matcher: Box<dyn Matcher>,
@@ -117,7 +117,7 @@ fn compile_service(
     };
 
     // Register hosts for ACME
-    use crate::router::registry::register_hosts;
+    use jokoway_rules::registry::register_hosts;
     let mut hosts = std::collections::HashSet::new();
     for route in &runtime_service.routes {
         for host in route.matcher.get_hosts() {
@@ -389,7 +389,7 @@ impl ServiceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{Route, Rule, Service, JokowayConfig};
+    use crate::config::models::{JokowayConfig, Route, Rule, Service};
 
     #[test]
     fn test_protocol_filtering() {

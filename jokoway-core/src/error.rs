@@ -59,3 +59,8 @@ impl From<&str> for JokowayError {
         JokowayError::Other(s.to_string())
     }
 }
+impl From<Box<dyn std::error::Error + Send + Sync>> for JokowayError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        JokowayError::Other(err.to_string())
+    }
+}

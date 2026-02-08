@@ -1,12 +1,12 @@
 use crate::config::ConfigBuilder;
+use crate::prelude::*;
 use crate::server::app::App;
-use crate::server::extension::{WebsocketExtension, JokowayExtension};
 
 use std::sync::Arc;
 
 pub fn jokoway_main(
     extensions: Vec<Box<dyn JokowayExtension>>,
-    websocket_extensions: Vec<Arc<dyn WebsocketExtension>>,
+    websocket_middlewares: Vec<Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>>,
 ) {
     env_logger::init();
 
@@ -24,7 +24,7 @@ pub fn jokoway_main(
     };
 
     let (config, server_conf) = builder.build();
-    let app = App::new(config, server_conf, opt, extensions, websocket_extensions);
+    let app = App::new(config, server_conf, opt, extensions, websocket_middlewares);
     log::info!("Starting Jokoway server...");
     if let Err(e) = app.run() {
         log::error!("Fatal error: {}", e);

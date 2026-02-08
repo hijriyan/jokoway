@@ -1,27 +1,53 @@
-use crate::server::context::{AppCtx, CompressionAlgo, Compressor, RouteContext};
-use crate::server::extension::{JokowayExtension, JokowayFilter};
 use async_trait::async_trait;
+use jokoway_core::AppCtx;
+use jokoway_core::{HttpMiddleware, JokowayExtension};
 use pingora::Error;
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
+use pingora::server::Server;
 use std::io::Write;
 
 pub struct CompressExtension;
 
 impl JokowayExtension for CompressExtension {
-    fn jokoway_init(
+    fn init(
         &self,
-        _server: &mut pingora::server::Server,
-        _app_ctx: &mut AppCtx,
-    ) -> Result<(), crate::error::JokowayError> {
+        _server: &mut Server,
+        app_ctx: &mut AppCtx,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // We don't really need AppCtx here for compression, but we keep the signature consistent
+        let _ = app_ctx;
         log::info!("Compress extension initialized");
         Ok(())
     }
 }
 
-pub struct CompressFilter;
+pub struct CompressMiddleware;
 
-impl CompressFilter {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompressionAlgo {
+    Gzip,
+    #[cfg(feature = "zstd")]
+    Zstd,
+    #[cfg(feature = "brotli")]
+    Brotli,
+}
+
+pub enum Compressor {
+    Gzip(flate2::write::GzEncoder<Vec<u8>>),
+    #[cfg(feature = "zstd")]
+    Zstd(zstd::stream::write::Encoder<'static, Vec<u8>>),
+    #[cfg(feature = "brotli")]
+    Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
+}
+
+#[derive(Default)]
+pub struct CompressContext {
+    pub compression_algo: Option<CompressionAlgo>,
+    pub compressor: Option<Compressor>,
+}
+
+impl CompressMiddleware {
     fn negotiate_compression(&self, accept_encoding: &str) -> Option<CompressionAlgo> {
         // Parse Accept-Encoding header
         // Simple parsing: split by comma, trim, check for algo
@@ -29,12 +55,12 @@ impl CompressFilter {
 
         let parts: Vec<&str> = accept_encoding.split(',').map(|s| s.trim()).collect();
 
-        #[cfg(feature = "compress-brotli")]
+        #[cfg(feature = "brotli")]
         if parts.iter().any(|s| s.eq_ignore_ascii_case("br")) {
             return Some(CompressionAlgo::Brotli);
         }
 
-        #[cfg(feature = "compress-zstd")]
+        #[cfg(feature = "zstd")]
         if parts.iter().any(|s| s.eq_ignore_ascii_case("zstd")) {
             return Some(CompressionAlgo::Zstd);
         }
@@ -48,12 +74,26 @@ impl CompressFilter {
 }
 
 #[async_trait]
-impl JokowayFilter for CompressFilter {
+impl HttpMiddleware for CompressMiddleware {
+    type CTX = CompressContext;
+
+    fn name(&self) -> &'static str {
+        "CompressMiddleware"
+    }
+
+    fn new_ctx(&self) -> Self::CTX {
+        CompressContext::default()
+    }
+
+    fn order(&self) -> i16 {
+        i16::MIN / 2 // Run late - compression should be last
+    }
+
     async fn request_filter(
         &self,
         session: &mut Session,
-        ctx: &mut RouteContext,
-        _app_ctx: &AppCtx,
+        ctx: &mut Self::CTX,
+        _app_ctx: &jokoway_core::AppCtx,
     ) -> Result<bool, Box<Error>> {
         let req_header = session.req_header_mut();
 
@@ -69,12 +109,12 @@ impl JokowayFilter for CompressFilter {
         Ok(false)
     }
 
-    async fn response_filter(
+    async fn upstream_response_filter(
         &self,
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
-        ctx: &mut RouteContext,
-        _app_ctx: &AppCtx,
+        ctx: &mut Self::CTX,
+        _app_ctx: &jokoway_core::AppCtx,
     ) -> Result<(), Box<Error>> {
         if let Some(algo) = ctx.compression_algo {
             // Check if response is already compressed (shouldn't be if we removed Accept-Encoding, but upstream might force it)
@@ -87,9 +127,9 @@ impl JokowayFilter for CompressFilter {
             // Set Content-Encoding header
             let encoding = match algo {
                 CompressionAlgo::Gzip => "gzip",
-                #[cfg(feature = "compress-zstd")]
+                #[cfg(feature = "zstd")]
                 CompressionAlgo::Zstd => "zstd",
-                #[cfg(feature = "compress-brotli")]
+                #[cfg(feature = "brotli")]
                 CompressionAlgo::Brotli => "br",
             };
             let _ = upstream_response.insert_header("Content-Encoding", encoding);
@@ -107,7 +147,7 @@ impl JokowayFilter for CompressFilter {
                     Vec::new(),
                     flate2::Compression::default(),
                 )),
-                #[cfg(feature = "compress-zstd")]
+                #[cfg(feature = "zstd")]
                 CompressionAlgo::Zstd => {
                     // Level 3 is default for zstd
                     match zstd::stream::write::Encoder::new(Vec::new(), 3) {
@@ -120,7 +160,7 @@ impl JokowayFilter for CompressFilter {
                         }
                     }
                 }
-                #[cfg(feature = "compress-brotli")]
+                #[cfg(feature = "brotli")]
                 CompressionAlgo::Brotli => {
                     // Buffer size 4096, quality 11, lgwin 22
                     Compressor::Brotli(Box::new(brotli::CompressorWriter::new(
@@ -142,7 +182,7 @@ impl JokowayFilter for CompressFilter {
         _session: &mut Session,
         body: &mut Option<bytes::Bytes>,
         end_of_stream: bool,
-        ctx: &mut RouteContext,
+        ctx: &mut Self::CTX,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         if ctx.compression_algo.is_none() {
             return Ok(None);
@@ -158,13 +198,13 @@ impl JokowayFilter for CompressFilter {
                             log::error!("Gzip compression error: {}", e);
                         }
                     }
-                    #[cfg(feature = "compress-zstd")]
+                    #[cfg(feature = "zstd")]
                     Compressor::Zstd(encoder) => {
                         if let Err(e) = encoder.write_all(chunk) {
                             log::error!("Zstd compression error: {}", e);
                         }
                     }
-                    #[cfg(feature = "compress-brotli")]
+                    #[cfg(feature = "brotli")]
                     Compressor::Brotli(encoder) => {
                         if let Err(e) = encoder.write_all(chunk) {
                             log::error!("Brotli compression error: {}", e);
@@ -177,9 +217,9 @@ impl JokowayFilter for CompressFilter {
             if end_of_stream {
                 let compressed_data = match ctx.compressor.take().unwrap() {
                     Compressor::Gzip(encoder) => encoder.finish().ok(),
-                    #[cfg(feature = "compress-zstd")]
+                    #[cfg(feature = "zstd")]
                     Compressor::Zstd(encoder) => encoder.finish().ok(),
-                    #[cfg(feature = "compress-brotli")]
+                    #[cfg(feature = "brotli")]
                     Compressor::Brotli(encoder) => Some(encoder.into_inner()),
                 };
 
@@ -190,5 +230,41 @@ impl JokowayFilter for CompressFilter {
         }
 
         Ok(Some(start.elapsed()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_negotiate_compression() {
+        let mw = CompressMiddleware;
+
+        // Test gzip
+        assert_eq!(
+            mw.negotiate_compression("gzip"),
+            Some(CompressionAlgo::Gzip)
+        );
+        assert_eq!(
+            mw.negotiate_compression("gzip, deflate"),
+            Some(CompressionAlgo::Gzip)
+        );
+
+        // Test priority
+        #[cfg(feature = "brotli")]
+        assert_eq!(
+            mw.negotiate_compression("br, gzip"),
+            Some(CompressionAlgo::Brotli)
+        );
+
+        #[cfg(feature = "zstd")]
+        assert_eq!(
+            mw.negotiate_compression("zstd, gzip"),
+            Some(CompressionAlgo::Zstd)
+        );
+
+        // Test identity/none
+        assert_eq!(mw.negotiate_compression("identity"), None);
     }
 }

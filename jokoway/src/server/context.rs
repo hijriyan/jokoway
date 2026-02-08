@@ -1,27 +1,10 @@
-use crate::transformer::ResponseTransformer;
-use arc_swap::ArcSwap;
+use jokoway_transformer::ResponseTransformer;
+
 use bytes::BytesMut;
 use flate2::Decompress;
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
+pub use jokoway_core::AppCtx;
+use std::any::Any;
 use std::sync::Arc;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompressionAlgo {
-    Gzip,
-    #[cfg(feature = "compress-zstd")]
-    Zstd,
-    #[cfg(feature = "compress-brotli")]
-    Brotli,
-}
-
-pub enum Compressor {
-    Gzip(flate2::write::GzEncoder<Vec<u8>>),
-    #[cfg(feature = "compress-zstd")]
-    Zstd(zstd::stream::write::Encoder<'static, Vec<u8>>),
-    #[cfg(feature = "compress-brotli")]
-    Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
-}
 
 pub struct RouteContext {
     pub upstream_name: Option<Arc<str>>,
@@ -33,8 +16,9 @@ pub struct RouteContext {
 
     pub ws_client_decompressor: Option<Decompress>,
     pub ws_upstream_decompressor: Option<Decompress>,
-    pub compression_algo: Option<CompressionAlgo>,
-    pub compressor: Option<Compressor>,
+
+    pub middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
+    pub websocket_middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
 }
 
 impl RouteContext {
@@ -51,8 +35,9 @@ impl RouteContext {
 
             ws_client_decompressor: None,
             ws_upstream_decompressor: None,
-            compression_algo: None,
-            compressor: None,
+
+            middleware_ctx: Vec::new(),
+            websocket_middleware_ctx: Vec::new(),
         }
     }
 
@@ -69,49 +54,7 @@ impl Default for RouteContext {
     }
 }
 
-#[derive(Clone)]
-pub struct AppCtx {
-    data: Arc<ArcSwap<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
-}
-
-impl AppCtx {
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(ArcSwap::from_pointee(HashMap::new())),
-        }
-    }
-
-    pub fn insert<T: Any + Send + Sync>(&self, value: T) {
-        let value = Arc::new(value) as Arc<dyn Any + Send + Sync>;
-        self.data.rcu(move |old| {
-            let mut next = (**old).clone();
-            next.insert(TypeId::of::<T>(), value.clone());
-            next
-        });
-    }
-
-    pub fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
-        let data = self.data.load();
-        let value = data.get(&TypeId::of::<T>()).cloned()?;
-        Arc::downcast::<T>(value).ok()
-    }
-
-    pub fn remove<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
-        let mut removed: Option<Arc<dyn Any + Send + Sync>> = None;
-        self.data.rcu(|old| {
-            let mut next = (**old).clone();
-            removed = next.remove(&TypeId::of::<T>());
-            next
-        });
-        removed.and_then(|value| Arc::downcast::<T>(value).ok())
-    }
-}
-
-impl Default for AppCtx {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// AppCtx has been moved to jokoway-core
 
 #[cfg(test)]
 mod tests {

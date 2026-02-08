@@ -12,10 +12,8 @@ pub use registry::{
 #[cfg(test)]
 mod tests {
     use super::{parse_response_transformers, parse_transformers};
-    use crate::transformer::models::{RequestTransformer, ResponseTransformer};
-    use crate::transformer::registry::{
-        register_request_transformer, register_response_transformer,
-    };
+    use crate::models::{RequestTransformer, ResponseTransformer};
+    use crate::registry::{register_request_transformer, register_response_transformer};
     use pingora::http::{RequestHeader, ResponseHeader};
     use winnow::ascii::multispace0;
     use winnow::token::literal as tag;

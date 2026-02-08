@@ -1,21 +1,36 @@
 use crate::config::models::JokowayConfig;
+use crate::prelude::*;
 use crate::server::context::AppCtx;
-use crate::server::extension::JokowayExtension;
 use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::config::{
     LookupIpStrategy, NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
-use pingora::server::Server;
+
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub struct DnsResolver {
-    pub resolver: Arc<TokioAsyncResolver>,
+#[async_trait::async_trait]
+pub trait DnsResolveImpl: Send + Sync {
+    async fn lookup_ip(&self, host: &str) -> Result<Vec<IpAddr>, String>;
 }
 
-impl DnsResolver {
-    pub fn new(config: &JokowayConfig) -> Self {
+struct HickoryDnsResolver {
+    resolver: Arc<TokioAsyncResolver>,
+}
+
+#[async_trait::async_trait]
+impl DnsResolveImpl for HickoryDnsResolver {
+    async fn lookup_ip(&self, host: &str) -> Result<Vec<IpAddr>, String> {
+        match self.resolver.lookup_ip(host).await {
+            Ok(lookup) => Ok(lookup.iter().collect()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
+impl HickoryDnsResolver {
+    fn new(config: &JokowayConfig) -> Self {
         let dns_settings = config.dns.as_ref();
         let mut opts = ResolverOpts::default();
         let resolver_config = if let Some(dns) = dns_settings {
@@ -75,26 +90,57 @@ impl DnsResolver {
             resolver: Arc::new(resolver),
         }
     }
+}
+
+pub struct MockDnsResolver {
+    pub ips: std::collections::HashMap<String, Vec<IpAddr>>,
+}
+
+#[async_trait::async_trait]
+impl DnsResolveImpl for MockDnsResolver {
+    async fn lookup_ip(&self, host: &str) -> Result<Vec<IpAddr>, String> {
+        if let Some(ips) = self.ips.get(host) {
+            Ok(ips.clone())
+        } else {
+            Err(format!("Mock DNS: Host {} not found", host))
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DnsResolver {
+    inner: Arc<dyn DnsResolveImpl>,
+}
+
+impl DnsResolver {
+    pub fn new(config: &JokowayConfig) -> Self {
+        Self {
+            inner: Arc::new(HickoryDnsResolver::new(config)),
+        }
+    }
+
+    pub fn new_mock(ips: std::collections::HashMap<String, Vec<IpAddr>>) -> Self {
+        Self {
+            inner: Arc::new(MockDnsResolver { ips }),
+        }
+    }
 
     pub async fn lookup_ip(&self, host: &str) -> Result<Vec<IpAddr>, String> {
-        match self.resolver.lookup_ip(host).await {
-            Ok(lookup) => Ok(lookup.iter().collect()),
-            Err(e) => Err(e.to_string()),
-        }
+        self.inner.lookup_ip(host).await
     }
 }
 
 pub struct DnsExtension;
 
 impl JokowayExtension for DnsExtension {
-    fn jokoway_init(
+    fn init(
         &self,
-        _server: &mut Server,
-        ctx: &mut AppCtx,
-    ) -> Result<(), crate::error::JokowayError> {
-        if let Some(config) = ctx.get::<JokowayConfig>() {
+        _server: &mut pingora::server::Server,
+        app_ctx: &mut AppCtx,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(config) = app_ctx.get::<JokowayConfig>() {
             let resolver = DnsResolver::new(&config);
-            ctx.insert(resolver);
+            app_ctx.insert(resolver);
             log::info!("DNS Resolver initialized");
         } else {
             log::warn!("JokowayConfig not found in AppCtx during DnsExtension init");

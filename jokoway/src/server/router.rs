@@ -2,8 +2,8 @@ use crate::config::models::ServiceProtocol;
 
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
-use crate::transformer::{RequestTransformer, ResponseTransformer};
 use arc_swap::ArcSwap;
+use jokoway_transformer::{RequestTransformer, ResponseTransformer};
 use pingora::http::RequestHeader;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -171,7 +171,7 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{Route, Rule, Service, ServiceProtocol, JokowayConfig};
+    use crate::config::models::{JokowayConfig, Route, Rule, Service, ServiceProtocol};
     use crate::extensions::dns::DnsResolver;
     use crate::server::context::AppCtx;
 

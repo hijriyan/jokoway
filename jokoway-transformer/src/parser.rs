@@ -1,7 +1,5 @@
-use crate::transformer::models::*;
-use crate::transformer::registry::{
-    parse_custom_request_transformers, parse_custom_response_transformers,
-};
+use crate::models::*;
+use crate::registry::{parse_custom_request_transformers, parse_custom_response_transformers};
 use http::{HeaderName, HeaderValue};
 use std::str::FromStr;
 use winnow::ascii::multispace0;

@@ -12,7 +12,7 @@ x-ssl-settings: &ssl_settings
   cacert: null
   server_cert: null
   server_key: null
-  ssl_min_version: "TLS1.0"
+  ssl_min_version: "TLS1"
   ssl_max_version: "TLS1.3"
   cipher_suites:
     tls12: null

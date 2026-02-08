@@ -436,7 +436,17 @@ mod tests {
 
         let app_ctx = AppCtx::new();
         app_ctx.insert(config.clone());
-        let resolver = DnsResolver::new(&config);
+        // Use mock resolver to avoid network dependency and speed up tests
+        let mut ips = std::collections::HashMap::new();
+        ips.insert(
+            "example.com".to_string(),
+            vec!["127.0.0.1".parse().unwrap()],
+        );
+        ips.insert(
+            "example.org".to_string(),
+            vec!["127.0.0.1".parse().unwrap()],
+        );
+        let resolver = DnsResolver::new_mock(ips);
         app_ctx.insert(resolver);
 
         let (manager, _) = UpstreamManager::new(&app_ctx).expect("Failed to create manager");

@@ -1,8 +1,7 @@
 use crate::config::models::{ApiSettings, Service, ServiceProtocol, Upstream};
-use crate::error::JokowayError;
 use crate::extensions::dns::DnsResolver;
+use crate::prelude::*;
 use crate::server::context::AppCtx;
-use crate::server::extension::JokowayExtension;
 use crate::server::service::{RuntimeService, ServiceManager};
 use crate::server::upstream::UpstreamManager;
 use async_trait::async_trait;
@@ -14,7 +13,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use pingora::server::Server;
+
 use pingora::server::ShutdownWatch;
 use pingora::services::background::{BackgroundService, GenBackgroundService};
 use serde::{Deserialize, Serialize};
@@ -283,7 +282,11 @@ impl BackgroundService for ApiService {
 }
 
 impl JokowayExtension for ApiExtension {
-    fn jokoway_init(&self, server: &mut Server, app_ctx: &mut AppCtx) -> Result<(), JokowayError> {
+    fn init(
+        &self,
+        server: &mut pingora::server::Server,
+        app_ctx: &mut jokoway_core::AppCtx,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let service = GenBackgroundService::new(
             "api_server".to_string(),
             Arc::new(ApiService {
@@ -417,6 +420,9 @@ async fn save_cert_to_file(
     file.write_all(content.as_bytes())
         .await
         .map_err(|e| format!("Failed to write to file: {}", e))?;
+    file.flush()
+        .await
+        .map_err(|e| format!("Failed to flush file: {}", e))?;
 
     Ok(file_path.to_string_lossy().into_owned())
 }

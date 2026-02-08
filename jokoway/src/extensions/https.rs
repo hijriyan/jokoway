@@ -1,19 +1,18 @@
 use crate::config::models::JokowayConfig;
 use crate::error::JokowayError;
-#[cfg(feature = "acme-extension")]
-use crate::extensions::acme::AcmeManager;
+use crate::prelude::*;
 use crate::server::context::AppCtx;
-use crate::server::extension::JokowayExtension;
 use crate::server::proxy::JokowayProxy;
 use crate::server::router::{HTTPS_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
+#[cfg(feature = "acme-extension")]
+use jokoway_acme::AcmeManager;
 use openssl::pkey::PKey;
 use openssl::ssl::{NameType, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
 use openssl::x509::X509;
 use pingora::listeners::tls::TlsSettings;
 use pingora::proxy::http_proxy_service;
-use pingora::server::Server;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -61,16 +60,20 @@ impl HttpsExtension {
 
 fn parse_ssl_version(version: &str) -> Option<SslVersion> {
     match version.to_uppercase().as_str() {
-        "TLSV1" | "TLS1" => Some(SslVersion::TLS1),
-        "TLSV1.1" | "TLS1.1" => Some(SslVersion::TLS1_1),
-        "TLSV1.2" | "TLS1.2" => Some(SslVersion::TLS1_2),
-        "TLSV1.3" | "TLS1.3" => Some(SslVersion::TLS1_3),
+        "TLSV1" | "TLS1" | "TLS1.0" | "1.0" => Some(SslVersion::TLS1),
+        "TLSV1.1" | "TLS1.1" | "1.1" => Some(SslVersion::TLS1_1),
+        "TLSV1.2" | "TLS1.2" | "1.2" => Some(SslVersion::TLS1_2),
+        "TLSV1.3" | "TLS1.3" | "1.3" => Some(SslVersion::TLS1_3),
         _ => None,
     }
 }
 
 impl JokowayExtension for HttpsExtension {
-    fn jokoway_init(&self, server: &mut Server, app_ctx: &mut AppCtx) -> Result<(), JokowayError> {
+    fn init(
+        &self,
+        server: &mut pingora::server::Server,
+        app_ctx: &mut AppCtx,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = app_ctx
             .get::<JokowayConfig>()
             .ok_or_else(|| JokowayError::Config("JokowayConfig not found in AppCtx".to_string()))?;
@@ -85,9 +88,9 @@ impl JokowayExtension for HttpsExtension {
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
         })?;
-        let service_manager = app_ctx
-            .get::<ServiceManager>()
-            .ok_or_else(|| JokowayError::Config("ServiceManager not found in AppCtx".to_string()))?;
+        let service_manager = app_ctx.get::<ServiceManager>().ok_or_else(|| {
+            JokowayError::Config("ServiceManager not found in AppCtx".to_string())
+        })?;
 
         let router = Router::new(
             service_manager,
@@ -95,7 +98,6 @@ impl JokowayExtension for HttpsExtension {
             &HTTPS_PROTOCOLS,
             // &config,
         );
-
         // JokowayProxy::new returns only proxy
         let proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()))?;
 
@@ -106,34 +108,34 @@ impl JokowayExtension for HttpsExtension {
                 Ok(acceptor) => acceptor,
                 Err(e) => {
                     log::error!("Failed to create SSL acceptor: {}", e);
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "Failed to create SSL acceptor: {}",
                         e
-                    )));
+                    ))));
                 }
             };
 
             let cert_paths = match (&ssl.server_cert, &ssl.server_key) {
                 (Some(cert), Some(key)) => {
                     if !Path::new(cert).exists() {
-                        return Err(JokowayError::Tls(format!(
+                        return Err(Box::new(JokowayError::Tls(format!(
                             "Certificate file not found: {}",
                             cert
-                        )));
+                        ))));
                     }
                     if !Path::new(key).exists() {
-                        return Err(JokowayError::Tls(format!(
+                        return Err(Box::new(JokowayError::Tls(format!(
                             "Private key file not found: {}",
                             key
-                        )));
+                        ))));
                     }
                     Some((cert, key))
                 }
                 (Some(_), None) | (None, Some(_)) => {
                     log::error!("Both server_cert and server_key must be specified together");
-                    return Err(JokowayError::Tls(
+                    return Err(Box::new(JokowayError::Tls(
                         "Both server_cert and server_key must be specified together".to_string(),
-                    ));
+                    )));
                 }
                 _ => None,
             };
@@ -143,10 +145,10 @@ impl JokowayExtension for HttpsExtension {
                     Ok(pair) => Some(pair),
                     Err(e) => {
                         log::error!("Failed to load TLS certs from config: {}", e);
-                        return Err(JokowayError::Tls(format!(
+                        return Err(Box::new(JokowayError::Tls(format!(
                             "Failed to load TLS certs from config: {}",
                             e
-                        )));
+                        ))));
                     }
                 }
             } else {
@@ -168,17 +170,17 @@ impl JokowayExtension for HttpsExtension {
             if let Some((cert, key)) = fallback_pair.as_ref() {
                 if let Err(e) = ssl_acceptor.set_private_key(key) {
                     log::error!("Failed to set fallback private key: {}", e);
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "Failed to set fallback private key: {}",
                         e
-                    )));
+                    ))));
                 }
                 if let Err(e) = ssl_acceptor.set_certificate(cert) {
                     log::error!("Failed to set fallback certificate: {}", e);
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "Failed to set fallback certificate: {}",
                         e
-                    )));
+                    ))));
                 }
             }
 
@@ -188,15 +190,10 @@ impl JokowayExtension for HttpsExtension {
                     .acme
                     .as_ref()
                     .map(|acme| {
-                        matches!(
-                            acme.challenge,
-                            crate::config::models::AcmeChallengeType::TlsAlpn01
-                        )
+                        matches!(acme.challenge, jokoway_acme::AcmeChallengeType::TlsAlpn01)
                     })
                     .unwrap_or(false);
 
-            // Configure ALPN
-            // Configure ALPN
             #[cfg(feature = "acme-extension")]
             if use_acme_tls_alpn {
                 let acme_manager_for_alpn = acme_manager.clone();
@@ -309,19 +306,19 @@ impl JokowayExtension for HttpsExtension {
                 && let Err(e) = ssl_acceptor.set_min_proto_version(Some(ver))
             {
                 log::error!("Failed to set min TLS version: {}", e);
-                return Err(JokowayError::Tls(format!(
+                return Err(Box::new(JokowayError::Tls(format!(
                     "Failed to set min TLS version: {}",
                     e
-                )));
+                ))));
             }
             if let Some(ver) = ssl.ssl_max_version.as_deref().and_then(parse_ssl_version)
                 && let Err(e) = ssl_acceptor.set_max_proto_version(Some(ver))
             {
                 log::error!("Failed to set max TLS version: {}", e);
-                return Err(JokowayError::Tls(format!(
+                return Err(Box::new(JokowayError::Tls(format!(
                     "Failed to set max TLS version: {}",
                     e
-                )));
+                ))));
             }
 
             if let Some(ciphers) = &ssl.cipher_suites {
@@ -329,35 +326,35 @@ impl JokowayExtension for HttpsExtension {
                     && let Err(e) = ssl_acceptor.set_cipher_list(&tls12.join(":"))
                 {
                     log::error!("Failed to set TLS1.2 ciphers: {}", e);
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "Failed to set TLS1.2 ciphers: {}",
                         e
-                    )));
+                    ))));
                 }
                 if let Some(tls13) = &ciphers.tls13
                     && let Err(e) = ssl_acceptor.set_ciphersuites(&tls13.join(":"))
                 {
                     log::error!("Failed to set TLS1.3 ciphersuites: {}", e);
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "Failed to set TLS1.3 ciphersuites: {}",
                         e
-                    )));
+                    ))));
                 }
             }
 
             if let Some(cacert) = &ssl.cacert {
                 if !Path::new(cacert).exists() {
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "CA certificate file not found: {}",
                         cacert
-                    )));
+                    ))));
                 }
                 if let Err(e) = ssl_acceptor.set_ca_file(cacert) {
                     log::error!("Failed to set CA file {}: {}", cacert, e);
-                    return Err(JokowayError::Tls(format!(
+                    return Err(Box::new(JokowayError::Tls(format!(
                         "Failed to set CA file {}: {}",
                         cacert, e
-                    )));
+                    ))));
                 }
                 ssl_acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
             }

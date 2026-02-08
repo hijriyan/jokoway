@@ -1,6 +1,13 @@
 [workspace]
+members = [
+    "jokoway-core",
+    "jokoway",
+    "jokoway-acme",
+    "jokoway-compress",
+    "jokoway-rules",
+    "jokoway-transformer",
+]
 resolver = "2"
-members = ["jokoway"]
 
 [profile.release]
 opt-level = 3     # Maximum optimization for speed

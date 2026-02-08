@@ -1,5 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::{Decompress, FlushDecompress};
+use std::any::Any;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +77,7 @@ impl WsFrame {
         match decompressor.decompress_vec(&data, &mut out, FlushDecompress::Sync) {
             Ok(_) => Some(Bytes::from(out)),
             Err(e) => {
-                log::error!("Decompression error: {:?}", e);
+                eprintln!("Decompression error: {:?}", e);
                 None
             }
         }
@@ -285,6 +286,115 @@ pub fn mask_key_from_time() -> [u8; 4] {
 fn apply_mask(payload: &mut [u8], key: [u8; 4]) {
     for (idx, byte) in payload.iter_mut().enumerate() {
         *byte ^= key[idx % 4];
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebsocketDirection {
+    DownstreamToUpstream,
+    UpstreamToDownstream,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebsocketError {
+    InvalidFrame,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebsocketErrorAction {
+    PassThrough,
+    Drop,
+    Close(Option<Vec<u8>>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebsocketMessageAction {
+    Forward(WsFrame),
+    Drop,
+    Close(Option<Vec<u8>>),
+}
+
+pub trait WebsocketMiddleware: Send + Sync {
+    /// Per-middleware context type
+    type CTX: Send + Sync + 'static;
+
+    /// The name of the middleware
+    fn name(&self) -> &'static str;
+
+    /// Create a new context instance for this middleware
+    fn new_ctx(&self) -> Self::CTX;
+
+    fn on_message(
+        &self,
+        _direction: WebsocketDirection,
+        frame: WsFrame,
+        _ctx: &mut Self::CTX,
+    ) -> WebsocketMessageAction {
+        WebsocketMessageAction::Forward(frame)
+    }
+
+    fn on_error(
+        &self,
+        _direction: WebsocketDirection,
+        _error: WebsocketError,
+        _ctx: &mut Self::CTX,
+    ) -> WebsocketErrorAction {
+        WebsocketErrorAction::PassThrough
+    }
+}
+
+/// Dynamic dispatch version of WebsocketMiddleware for trait objects
+pub trait WebsocketMiddlewareDyn: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync>;
+
+    fn on_message_dyn(
+        &self,
+        direction: WebsocketDirection,
+        frame: WsFrame,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> WebsocketMessageAction;
+
+    fn on_error_dyn(
+        &self,
+        direction: WebsocketDirection,
+        error: WebsocketError,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> WebsocketErrorAction;
+}
+
+/// Blanket implementation for all WebsocketMiddleware types
+impl<T: WebsocketMiddleware> WebsocketMiddlewareDyn for T {
+    fn name(&self) -> &'static str {
+        WebsocketMiddleware::name(self)
+    }
+
+    fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync> {
+        Box::new(self.new_ctx())
+    }
+
+    fn on_message_dyn(
+        &self,
+        direction: WebsocketDirection,
+        frame: WsFrame,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> WebsocketMessageAction {
+        let ctx = ctx
+            .downcast_mut::<T::CTX>()
+            .expect("Invalid context type for WebsocketMiddleware");
+        self.on_message(direction, frame, ctx)
+    }
+
+    fn on_error_dyn(
+        &self,
+        direction: WebsocketDirection,
+        error: WebsocketError,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> WebsocketErrorAction {
+        let ctx = ctx
+            .downcast_mut::<T::CTX>()
+            .expect("Invalid context type for WebsocketMiddleware");
+        self.on_error(direction, error, ctx)
     }
 }
 

@@ -9,8 +9,8 @@ pub use registry::{parse_custom_rules, register_router_rule};
 #[cfg(test)]
 mod tests {
     use super::parse_rule;
-    use crate::router::matcher::Matcher;
-    use crate::router::registry::register_router_rule;
+    use crate::matcher::Matcher;
+    use crate::registry::register_router_rule;
     use pingora::http::RequestHeader;
     use winnow::ascii::multispace0;
     use winnow::token::literal as tag;

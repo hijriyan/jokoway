@@ -1,0 +1,25 @@
+[package]
+name = "jokoway-acme"
+version = "0.1.0-alpha.1"
+edition = "2024"
+license = "MIT"
+authors = ["Hijriyan <april@kuli.dev>"]
+repository = "https://github.com/hijriyan/jokoway"
+description = "ACME (Let's Encrypt) extension for Jokoway"
+
+[dependencies]
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.1" }
+jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
+instant-acme = "0.8.4"
+pingora = { version = "0.7.0", features = ["openssl"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+openssl = "0.10"
+dashmap = "6.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+x509-parser = "0.16"
+rcgen = "0.13"
+arc-swap = "1.7"
+bytes = "1"

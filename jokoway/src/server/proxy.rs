@@ -1,19 +1,17 @@
 use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions};
 use crate::error::JokowayError;
 
+use crate::prelude::*;
 use crate::server::context::{AppCtx, RouteContext};
-use crate::server::extension::{
-    JokowayFilter, WebsocketDirection, WebsocketError, WebsocketErrorAction, WebsocketExtension,
-    WebsocketMessageAction,
-};
 use crate::server::router::Router;
 use crate::server::upstream::UpstreamManager;
-use crate::websocket::{
-    WsFrame, WsParseResult, encode_ws_frame_into, mask_key_from_time, parse_ws_frames,
-};
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Version;
+use jokoway_core::websocket::{
+    WebsocketMiddlewareDyn, WsFrame, WsOpcode, WsParseResult, encode_ws_frame_into,
+    mask_key_from_time, parse_ws_frames,
+};
 use pingora::Error;
 use pingora::http::ResponseHeader;
 use pingora::proxy::{ProxyHttp, Session};
@@ -100,27 +98,39 @@ impl CachedPeerConfig {
 
     #[inline]
     pub fn apply_to_peer<P: ConfigurablePeer>(&self, peer: &mut P) {
-        let options = peer.options_mut();
+        let peer_options = peer.options_mut();
         // Apply basic options (same as original apply_peer_options)
         if let Some(read_timeout) = self.options.read_timeout {
-            options.read_timeout = Some(Duration::from_secs(read_timeout));
+            peer_options.read_timeout = Some(Duration::from_secs(read_timeout));
         }
         if let Some(idle_timeout) = self.options.idle_timeout {
-            options.idle_timeout = Some(Duration::from_secs(idle_timeout));
+            peer_options.idle_timeout = Some(Duration::from_secs(idle_timeout));
         }
         if let Some(write_timeout) = self.options.write_timeout {
-            options.write_timeout = Some(Duration::from_secs(write_timeout));
+            peer_options.write_timeout = Some(Duration::from_secs(write_timeout));
         }
         if let Some(verify_cert) = self.options.verify_cert {
-            options.verify_cert = verify_cert;
+            peer_options.verify_cert = verify_cert;
         }
         if let Some(verify_hostname) = self.options.verify_hostname {
-            options.verify_hostname = verify_hostname;
+            peer_options.verify_hostname = verify_hostname;
+        }
+        if let Some(tcp_recv_buf) = self.options.tcp_recv_buf {
+            peer_options.tcp_recv_buf = Some(tcp_recv_buf);
+        }
+        if let Some(ref curves) = self.options.curves {
+            // Leak the string to get a 'static reference
+            // This is acceptable since peer configurations are typically long-lived
+            let curves_static: &'static str = Box::leak(curves.clone().into_boxed_str());
+            peer_options.curves = Some(curves_static);
+        }
+        if let Some(tcp_fast_open) = self.options.tcp_fast_open {
+            peer_options.tcp_fast_open = tcp_fast_open;
         }
 
-        // Apply pre-loaded certificates (no need to load from disk again)
+        // Set CA certificates if available
         if let Some(ca_certs) = &self.ca_certs {
-            options.ca = Some(ca_certs.clone());
+            peer_options.ca = Some(ca_certs.clone());
         }
     }
 
@@ -138,8 +148,8 @@ impl CachedPeerConfig {
 pub struct JokowayProxy {
     pub config: Arc<JokowayConfig>,
     pub router: Arc<Router>,
-    pub filters: Arc<Vec<Arc<dyn JokowayFilter>>>,
-    pub websocket_extensions: Arc<Vec<Arc<dyn WebsocketExtension>>>,
+    pub http_middlewares: Arc<Vec<Arc<dyn HttpMiddlewareDyn>>>,
+    pub websocket_middlewares: Arc<Vec<Arc<dyn WebsocketMiddlewareDyn>>>,
     pub app_ctx: Arc<AppCtx>,
     pub upstream_manager: Arc<UpstreamManager>,
 }
@@ -149,11 +159,11 @@ impl JokowayProxy {
         let config = app_ctx
             .get::<JokowayConfig>()
             .ok_or_else(|| JokowayError::Config("JokowayConfig not found in AppCtx".to_string()))?;
-        let filters = app_ctx
-            .get::<Vec<Arc<dyn JokowayFilter>>>()
+        let middlewares = app_ctx
+            .get::<Vec<Arc<dyn HttpMiddlewareDyn>>>()
             .unwrap_or_else(|| Arc::new(Vec::new()));
-        let websocket_extensions = app_ctx
-            .get::<Vec<Arc<dyn WebsocketExtension>>>()
+        let websocket_middlewares = app_ctx
+            .get::<Vec<Arc<dyn WebsocketMiddlewareDyn>>>()
             .unwrap_or_else(|| Arc::new(Vec::new()));
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
@@ -161,8 +171,8 @@ impl JokowayProxy {
         Ok(JokowayProxy {
             config,
             router,
-            filters,
-            websocket_extensions,
+            http_middlewares: middlewares,
+            websocket_middlewares,
             app_ctx,
             upstream_manager,
         })
@@ -241,7 +251,15 @@ fn load_client_cert_key(
 impl ProxyHttp for JokowayProxy {
     type CTX = RouteContext;
     fn new_ctx(&self) -> Self::CTX {
-        RouteContext::new()
+        let mut ctx = RouteContext::new();
+        for middleware in self.http_middlewares.iter() {
+            ctx.middleware_ctx.push(middleware.new_ctx_dyn());
+        }
+        for ws_middleware in self.websocket_middlewares.iter() {
+            ctx.websocket_middleware_ctx
+                .push(ws_middleware.new_ctx_dyn());
+        }
+        ctx
     }
 
     async fn request_filter(
@@ -249,16 +267,18 @@ impl ProxyHttp for JokowayProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool, Box<Error>> {
-        // Fast path: check filters first
-        for filter in self.filters.iter() {
-            if filter.request_filter(session, ctx, &self.app_ctx).await? {
+        // Fast path: check middlewares first
+        for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+            let middleware_ctx = &mut ctx.middleware_ctx[idx];
+            if middleware
+                .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
+                .await?
+            {
                 return Ok(true);
             }
         }
 
         let req_header = session.req_header_mut();
-
-        // Optimized WebSocket detection
         let is_upgrade = req_header
             .headers
             .get("Upgrade")
@@ -379,9 +399,15 @@ impl ProxyHttp for JokowayProxy {
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> Result<(), Box<Error>> {
-        for filter in self.filters.iter() {
-            filter
-                .response_filter(session, upstream_response, ctx, &self.app_ctx)
+        for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+            let middleware_ctx = &mut ctx.middleware_ctx[idx];
+            middleware
+                .upstream_response_filter_dyn(
+                    session,
+                    upstream_response,
+                    middleware_ctx.as_mut(),
+                    &self.app_ctx,
+                )
                 .await?;
         }
 
@@ -396,12 +422,18 @@ impl ProxyHttp for JokowayProxy {
 
     async fn request_body_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         body: &mut Option<Bytes>,
-        _end_of_stream: bool,
+        end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<(), Box<Error>> {
         if !ctx.is_upgrade {
+            for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+                let middleware_ctx = &mut ctx.middleware_ctx[idx];
+                middleware
+                    .request_body_filter_dyn(session, body, end_of_stream, middleware_ctx.as_mut())
+                    .await?;
+            }
             return Ok(());
         }
 
@@ -410,7 +442,7 @@ impl ProxyHttp for JokowayProxy {
         };
 
         // Fast path: if no extensions, pass through without parsing
-        if self.websocket_extensions.is_empty() {
+        if self.websocket_middlewares.is_empty() {
             *body = Some(chunk);
             return Ok(());
         }
@@ -433,8 +465,9 @@ impl ProxyHttp for JokowayProxy {
                         None
                     };
 
-                    match apply_ws_extensions(
-                        &self.websocket_extensions,
+                    match apply_ws_middlewares(
+                        &self.websocket_middlewares,
+                        &mut ctx.websocket_middleware_ctx,
                         WebsocketDirection::DownstreamToUpstream,
                         frame,
                         decompressor,
@@ -465,7 +498,8 @@ impl ProxyHttp for JokowayProxy {
             }
             WsParseResult::Invalid => {
                 match handle_ws_error(
-                    &self.websocket_extensions,
+                    &self.websocket_middlewares,
+                    &mut ctx.websocket_middleware_ctx,
                     WebsocketDirection::DownstreamToUpstream,
                     WebsocketError::InvalidFrame,
                 ) {
@@ -501,8 +535,14 @@ impl ProxyHttp for JokowayProxy {
         ctx: &mut Self::CTX,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         if !ctx.is_upgrade {
-            for filter in self.filters.iter() {
-                filter.response_body_filter(session, body, end_of_stream, ctx)?;
+            for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+                let middleware_ctx = &mut ctx.middleware_ctx[idx];
+                middleware.response_body_filter_dyn(
+                    session,
+                    body,
+                    end_of_stream,
+                    middleware_ctx.as_mut(),
+                )?;
             }
             return Ok(None);
         }
@@ -512,7 +552,7 @@ impl ProxyHttp for JokowayProxy {
         };
 
         // Fast path: if no extensions, pass through without parsing
-        if self.websocket_extensions.is_empty() {
+        if self.websocket_middlewares.is_empty() {
             *body = Some(chunk);
             return Ok(None);
         }
@@ -532,8 +572,9 @@ impl ProxyHttp for JokowayProxy {
                         None
                     };
 
-                    match apply_ws_extensions(
-                        &self.websocket_extensions,
+                    match apply_ws_middlewares(
+                        &self.websocket_middlewares,
+                        &mut ctx.websocket_middleware_ctx,
                         WebsocketDirection::UpstreamToDownstream,
                         frame,
                         decompressor,
@@ -559,7 +600,8 @@ impl ProxyHttp for JokowayProxy {
             }
             WsParseResult::Invalid => {
                 match handle_ws_error(
-                    &self.websocket_extensions,
+                    &self.websocket_middlewares,
+                    &mut ctx.websocket_middleware_ctx,
                     WebsocketDirection::UpstreamToDownstream,
                     WebsocketError::InvalidFrame,
                 ) {
@@ -593,8 +635,9 @@ impl ProxyHttp for JokowayProxy {
     async fn logging(&self, _session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {}
 }
 
-fn apply_ws_extensions(
-    extensions: &[Arc<dyn WebsocketExtension>],
+fn apply_ws_middlewares(
+    middlewares: &[Arc<dyn WebsocketMiddlewareDyn>],
+    middleware_ctxs: &mut [Box<dyn std::any::Any + Send + Sync>],
     direction: WebsocketDirection,
     mut frame: WsFrame,
     decompressor: Option<&mut flate2::Decompress>,
@@ -621,9 +664,12 @@ fn apply_ws_extensions(
     }
 
     let mut action = WebsocketMessageAction::Forward(frame);
-    for ext in extensions {
+    for (idx, middleware) in middlewares.iter().enumerate() {
+        let ctx = &mut middleware_ctxs[idx];
         action = match action {
-            WebsocketMessageAction::Forward(current) => ext.on_message(direction, current),
+            WebsocketMessageAction::Forward(current) => {
+                middleware.on_message_dyn(direction, current, ctx.as_mut())
+            }
             other => other,
         };
         if !matches!(action, WebsocketMessageAction::Forward(_)) {
@@ -652,13 +698,15 @@ fn apply_ws_extensions(
 }
 
 fn handle_ws_error(
-    extensions: &[Arc<dyn WebsocketExtension>],
+    middlewares: &[Arc<dyn WebsocketMiddlewareDyn>],
+    middleware_ctxs: &mut [Box<dyn std::any::Any + Send + Sync>],
     direction: WebsocketDirection,
     error: WebsocketError,
 ) -> WebsocketErrorAction {
     let mut action = WebsocketErrorAction::PassThrough;
-    for ext in extensions {
-        match ext.on_error(direction, error.clone()) {
+    for (idx, middleware) in middlewares.iter().enumerate() {
+        let ctx = &mut middleware_ctxs[idx];
+        match middleware.on_error_dyn(direction, error.clone(), &mut *ctx) {
             WebsocketErrorAction::PassThrough => {}
             WebsocketErrorAction::Drop => {
                 action = WebsocketErrorAction::Drop;
@@ -677,7 +725,7 @@ fn close_frame(payload: Option<Vec<u8>>) -> WsFrame {
         rsv1: false,
         rsv2: false,
         rsv3: false,
-        opcode: crate::websocket::WsOpcode::Close,
+        opcode: WsOpcode::Close,
         payload: payload.map(Bytes::from).unwrap_or_default(),
     }
 }
@@ -691,15 +739,27 @@ mod tests {
     use crate::server::router::{ALL_PROTOCOLS, Router};
     use crate::server::service::ServiceManager;
     use crate::server::upstream::UpstreamManager;
+    use jokoway_core::websocket::WebsocketMiddleware;
     use std::sync::Arc;
 
     struct UppercaseExtension;
 
-    impl WebsocketExtension for UppercaseExtension {
+    impl jokoway_core::websocket::WebsocketMiddleware for UppercaseExtension {
+        type CTX = ();
+
+        fn name(&self) -> &'static str {
+            "UppercaseExtension"
+        }
+
+        fn new_ctx(&self) -> Self::CTX {
+            ()
+        }
+
         fn on_message(
             &self,
             _direction: WebsocketDirection,
             mut frame: WsFrame,
+            _ctx: &mut Self::CTX,
         ) -> WebsocketMessageAction {
             if let Ok(text) = std::str::from_utf8(&frame.payload) {
                 frame.payload = Bytes::copy_from_slice(text.to_ascii_uppercase().as_bytes());
@@ -709,21 +769,38 @@ mod tests {
     }
 
     #[test]
-    fn websocket_extension_transform() {
-        let extensions: Vec<Arc<dyn WebsocketExtension>> = vec![Arc::new(UppercaseExtension)];
+    fn websocket_middleware_transform() {
+        // Test direct middleware usage first
+        let middleware = UppercaseExtension;
+        let mut ctx = middleware.new_ctx();
         let frame = WsFrame {
             fin: true,
             rsv1: false,
             rsv2: false,
             rsv3: false,
-            opcode: crate::websocket::WsOpcode::Text,
+            opcode: WsOpcode::Text,
             payload: Bytes::from_static(b"hello"),
         };
-        match apply_ws_extensions(
-            &extensions,
+
+        match middleware.on_message(
+            WebsocketDirection::UpstreamToDownstream,
+            frame.clone(),
+            &mut ctx,
+        ) {
+            WebsocketMessageAction::Forward(updated) => {
+                assert_eq!(updated.payload, Bytes::from_static(b"HELLO"));
+            }
+            _ => panic!("unexpected action"),
+        }
+
+        // Now test through trait object
+        let middleware_dyn: Arc<dyn WebsocketMiddlewareDyn> = Arc::new(UppercaseExtension);
+        let mut ctx_dyn = middleware_dyn.new_ctx_dyn();
+
+        match middleware_dyn.on_message_dyn(
             WebsocketDirection::UpstreamToDownstream,
             frame,
-            None,
+            &mut *ctx_dyn,
         ) {
             WebsocketMessageAction::Forward(updated) => {
                 assert_eq!(updated.payload, Bytes::from_static(b"HELLO"));

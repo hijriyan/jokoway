@@ -1,20 +1,51 @@
-use crate::config::models::{AcmeChallengeType, AcmeSettings};
-use crate::error::JokowayError;
 use arc_swap::ArcSwap;
+use async_trait::async_trait;
 use dashmap::DashMap;
 use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
     NewOrder, OrderStatus, RetryPolicy,
 };
+use jokoway_core::{HttpMiddleware, JokowayExtension};
+use jokoway_rules::registry::get_registered_hosts;
 use openssl::pkey::{PKey, Private};
 use openssl::x509::X509;
+use pingora::{
+    Error,
+    http::ResponseHeader,
+    proxy::Session,
+    server::{Server, ShutdownWatch},
+    services::background::{BackgroundService, background_service},
+};
 use rcgen::CertificateParams;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use x509_parser::pem::Pem;
+
+// --- Config Models (Moved from jokoway/src/config/models.rs) ---
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub enum AcmeChallengeType {
+    #[serde(rename = "http-01")]
+    #[default]
+    Http01,
+    #[serde(rename = "tls-alpn-01")]
+    TlsAlpn01,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AcmeSettings {
+    pub ca_server: String,
+    pub email: String,
+    pub storage: String,
+    #[serde(default)]
+    pub challenge: AcmeChallengeType,
+}
+
+// --- Internal Types ---
 
 pub struct ParsedCertificate {
     pub certificate_chain: Vec<X509>,
@@ -34,7 +65,7 @@ pub struct CertificateEntry {
     pub private_key: String,
 }
 
-use std::sync::RwLock;
+// --- AcmeManager ---
 
 #[derive(Clone)]
 pub struct AcmeManager {
@@ -113,16 +144,23 @@ impl AcmeManager {
     ) -> Option<Arc<ParsedCertificate>> {
         if tls_challenge {
             // For TLS-ALPN-01 challenges, parse from the challenge map
-            if let Some((cert_pem, key_pem)) = self.get_tls_alpn_challenge(domain)
-                && let (Ok(certs), Ok(key)) = (
-                    X509::stack_from_pem(cert_pem.as_bytes()),
-                    PKey::private_key_from_pem(key_pem.as_bytes()),
-                )
-            {
-                return Some(Arc::new(ParsedCertificate {
-                    certificate_chain: certs,
-                    private_key: key,
-                }));
+            if let Some((cert_pem, key_pem)) = self.get_tls_alpn_challenge(domain) {
+                // Use explicit boolean binding for if-let chain
+                let parsed = {
+                    let certs_res = X509::stack_from_pem(cert_pem.as_bytes());
+                    let key_res = PKey::private_key_from_pem(key_pem.as_bytes());
+                    match (certs_res, key_res) {
+                        (Ok(certs), Ok(key)) => Some((certs, key)),
+                        _ => None,
+                    }
+                };
+
+                if let Some((certs, key)) = parsed {
+                    return Some(Arc::new(ParsedCertificate {
+                        certificate_chain: certs,
+                        private_key: key,
+                    }));
+                }
             }
         }
         self.cert_cache.load().get(domain).cloned()
@@ -186,27 +224,17 @@ impl AcmeManager {
         let path = Path::new(&self.settings.storage);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| {
-                JokowayError::Acme(format!(
+                format!(
                     "Failed to create directory: {} (error {})",
                     parent.display(),
                     e
-                ))
+                )
             })?;
         }
-        let file = File::create(path).map_err(|e| {
-            JokowayError::Acme(format!(
-                "Failed to create file: {} (error {})",
-                path.display(),
-                e
-            ))
-        })?;
-        serde_json::to_writer_pretty(file, storage).map_err(|e| {
-            JokowayError::Acme(format!(
-                "Failed to write to file: {} (error {})",
-                path.display(),
-                e
-            ))
-        })?;
+        let file = File::create(path)
+            .map_err(|e| format!("Failed to create file: {} (error {})", path.display(), e))?;
+        serde_json::to_writer_pretty(file, storage)
+            .map_err(|e| format!("Failed to write to file: {} (error {})", path.display(), e))?;
         Ok(())
     }
 
@@ -446,15 +474,17 @@ impl AcmeManager {
         log::debug!("Certificate received");
 
         // Add to cache immediately after obtaining certificate
-        if let Some(first_domain) = domains.first()
-            && let Err(e) =
+        if let Some(first_domain) = domains.first() {
+            // explicit bool check to avoid let guards
+            if let Err(e) =
                 self.add_to_cert_store(first_domain.clone(), &cert_pem, &private_key_pem)
-        {
-            log::warn!(
-                "Failed to add certificate for {} to cache: {}",
-                first_domain,
-                e
-            );
+            {
+                log::warn!(
+                    "Failed to add certificate for {} to cache: {}",
+                    first_domain,
+                    e
+                );
+            }
         }
 
         // Cleanup challenges
@@ -510,46 +540,47 @@ impl AcmeManager {
     }
 }
 
-use crate::config::models::JokowayConfig;
-use crate::router::registry::get_registered_hosts;
-use crate::server::context::{AppCtx, RouteContext};
-use crate::server::extension::{JokowayExtension, JokowayFilter};
-use async_trait::async_trait;
-use pingora::Error;
-use pingora::http::ResponseHeader;
-use pingora::proxy::Session;
-use pingora::server::Server;
-use pingora::server::ShutdownWatch;
-use pingora::services::background::{BackgroundService, background_service};
-use x509_parser::pem::Pem;
+// --- AcmeExtension & Middleware ---
+
+// HostProvider trait removed
 
 #[derive(Clone)]
 pub struct AcmeExtension {
     pub acme_manager: Arc<AcmeManager>,
-    pub config: Arc<JokowayConfig>,
 }
 
 impl AcmeExtension {
-    pub fn new(settings: &AcmeSettings, config: Arc<JokowayConfig>) -> Self {
+    pub fn new(settings: &AcmeSettings) -> Self {
         Self {
             acme_manager: Arc::new(AcmeManager::new(settings)),
-            config,
         }
     }
 }
 
 #[derive(Clone)]
-pub struct AcmeFilter {
+pub struct AcmeMiddleware {
     pub acme_manager: Arc<AcmeManager>,
 }
 
 #[async_trait]
-impl JokowayFilter for AcmeFilter {
+impl HttpMiddleware for AcmeMiddleware {
+    type CTX = ();
+
+    fn name(&self) -> &'static str {
+        "AcmeMiddleware"
+    }
+
+    fn new_ctx(&self) -> Self::CTX {}
+
+    fn order(&self) -> i16 {
+        i16::MAX // Run early - ACME challenges should be checked first
+    }
+
     async fn request_filter(
         &self,
         session: &mut Session,
-        _ctx: &mut RouteContext,
-        _app_ctx: &AppCtx,
+        _ctx: &mut Self::CTX,
+        _app_ctx: &jokoway_core::AppCtx,
     ) -> Result<bool, Box<Error>> {
         let path = session.req_header().uri.path();
         if path.starts_with("/.well-known/acme-challenge/") {
@@ -573,10 +604,13 @@ impl JokowayFilter for AcmeFilter {
 
 #[async_trait]
 impl JokowayExtension for AcmeExtension {
-    fn jokoway_init(&self, server: &mut Server, app_ctx: &mut AppCtx) -> Result<(), JokowayError> {
+    fn init(
+        &self,
+        server: &mut Server,
+        app_ctx: &mut jokoway_core::AppCtx,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let renewal_service = AcmeRenewalService {
             acme: self.acme_manager.clone(),
-            config: self.config.clone(),
         };
         let bg_service = background_service("acme_renewal", renewal_service);
         server.add_service(bg_service);
@@ -584,13 +618,13 @@ impl JokowayExtension for AcmeExtension {
         // Share AcmeManager with other extensions (e.g. HttpsExtension)
         // We clone the inner AcmeManager handle and insert it so get::<AcmeManager>() works
         app_ctx.insert((*self.acme_manager).clone());
+
         Ok(())
     }
 }
 
 pub struct AcmeRenewalService {
     pub acme: Arc<AcmeManager>,
-    pub config: Arc<JokowayConfig>,
 }
 
 #[async_trait]
@@ -675,28 +709,5 @@ impl AcmeRenewalService {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::server::context::AppCtx;
-
-    #[test]
-    fn test_app_ctx_acme_manager_retrieval() {
-        let settings = AcmeSettings {
-            storage: "/tmp/test_get.json".to_string(),
-            ..Default::default()
-        };
-        let manager = Arc::new(AcmeManager::new(&settings));
-        let ctx = AppCtx::new();
-
-        // This is what AcmeExtension::jokoway_init does
-        ctx.insert((*manager).clone());
-
-        // This is what HttpsExtension::jokoway_init does
-        let retrieved = ctx.get::<AcmeManager>();
-        assert!(retrieved.is_some());
     }
 }

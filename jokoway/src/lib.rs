@@ -1,9 +1,9 @@
 pub mod config;
-pub mod error;
+pub use jokoway_core::error;
 pub mod extensions;
 
 pub mod cli;
-pub mod router;
+
 pub mod server;
-pub mod transformer;
-pub mod websocket;
+
+pub mod prelude;

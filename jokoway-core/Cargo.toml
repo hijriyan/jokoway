@@ -1,0 +1,15 @@
+[package]
+name = "jokoway-core"
+version = "0.1.0-alpha.1"
+edition = "2024"
+license = "MIT"
+authors = ["Hijriyan <april@kuli.dev>"]
+repository = "https://github.com/hijriyan/jokoway"
+description = "Core traits and types for Jokoway API Gateway"
+
+[dependencies]
+pingora = { version = "0.7.0", features = ["proxy", "openssl"] }
+async-trait = "0.1"
+bytes = "1"
+arc-swap = "1.8.0"
+flate2 = "1.1.9"

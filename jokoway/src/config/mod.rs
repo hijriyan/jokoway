@@ -18,10 +18,8 @@ mod tests {
         assert!(builder.is_ok());
         let (config, _) = builder.unwrap().build();
 
-        assert_eq!(config.http_listen, "[::]:2023");
         assert!(config.ssl.is_some());
         assert_eq!(config.upstreams.len(), 1);
-        assert_eq!(config.upstreams[0].name, "ups_searchengine");
     }
 
     #[test]

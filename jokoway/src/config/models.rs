@@ -11,12 +11,16 @@ pub struct RootConfig {
     pub pingora: Option<ServerConf>,
 }
 
+#[cfg(feature = "acme-extension")]
+pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct JokowayConfig {
     pub http_listen: String,
     pub https_listen: Option<String>,
     pub api: Option<ApiSettings>,
     pub ssl: Option<SslSettings>,
+    #[cfg(feature = "acme-extension")]
     pub acme: Option<AcmeSettings>,
 
     #[serde(default)]
@@ -100,24 +104,6 @@ pub struct SslSettings {
 pub struct CipherSuites {
     pub tls12: Option<Vec<String>>,
     pub tls13: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub enum AcmeChallengeType {
-    #[serde(rename = "http-01")]
-    #[default]
-    Http01,
-    #[serde(rename = "tls-alpn-01")]
-    TlsAlpn01,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct AcmeSettings {
-    pub ca_server: String,
-    pub email: String,
-    pub storage: String,
-    #[serde(default)]
-    pub challenge: AcmeChallengeType,
 }
 
 fn default_openapi_title() -> String {
