@@ -893,6 +893,7 @@ mod tests {
                 }),
             }],
             health_check: None,
+            update_frequency: None,
         };
 
         // Run processing

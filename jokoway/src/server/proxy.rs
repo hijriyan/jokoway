@@ -832,6 +832,7 @@ mod tests {
                 },
             ],
             health_check: None,
+            update_frequency: None,
         };
 
         config.upstreams.push(upstream);
@@ -911,6 +912,7 @@ mod tests {
                 },
             ],
             health_check: None,
+            update_frequency: None,
         };
 
         config.upstreams.push(upstream);
@@ -975,6 +977,7 @@ mod tests {
             peer_options: None,
             servers: vec![], // Empty servers list
             health_check: None,
+            update_frequency: None,
         };
 
         config.upstreams.push(upstream);

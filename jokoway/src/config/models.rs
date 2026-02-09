@@ -147,6 +147,7 @@ pub struct Upstream {
     #[serde(default)]
     pub servers: Vec<UpstreamServer>,
     pub health_check: Option<HealthCheckConfig>,
+    pub update_frequency: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

@@ -114,7 +114,17 @@ fn compile_upstream(
         Box::new(JokowayUpstreamDiscovery::new(server_configs, dns_resolver));
     let backends = Backends::new(discovery);
     let mut load_balancer = LoadBalancer::from_backends(backends);
-    load_balancer.update_frequency = Some(Duration::from_secs(15));
+
+    // Set update frequency from config if specified
+    if let Some(freq_secs) = upstream.update_frequency {
+        load_balancer.update_frequency = Some(Duration::from_secs(freq_secs));
+        log::debug!(
+            "Configured update frequency for upstream '{}': {}s",
+            upstream.name,
+            freq_secs
+        );
+    }
+
     // Configure health check if specified
     if let Some(hc_config) = &upstream.health_check {
         use crate::server::health::create_health_check;
@@ -382,6 +392,7 @@ mod tests {
                         peer_options: None,
                     }],
                     health_check: None,
+                    update_frequency: None,
                 },
                 Upstream {
                     name: "ip_upstream".to_string(),
@@ -393,6 +404,7 @@ mod tests {
                         peer_options: None,
                     }],
                     health_check: None,
+                    update_frequency: None,
                 },
                 Upstream {
                     name: "explicit_sni".to_string(),
@@ -407,6 +419,7 @@ mod tests {
                         }),
                     }],
                     health_check: None,
+                    update_frequency: None,
                 },
                 Upstream {
                     name: "manual_tls_true".to_string(),
@@ -418,6 +431,7 @@ mod tests {
                         peer_options: None,
                     }],
                     health_check: None,
+                    update_frequency: None,
                 },
                 Upstream {
                     name: "manual_tls_false".to_string(),
@@ -429,6 +443,7 @@ mod tests {
                         peer_options: None,
                     }],
                     health_check: None,
+                    update_frequency: None,
                 },
             ],
             ..Default::default()

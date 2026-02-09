@@ -10,7 +10,7 @@ use std::fs;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{any, method, path};
 use wiremock::{Mock, ResponseTemplate};
 
 mod common;
@@ -397,4 +397,224 @@ async fn test_mtls_upstream() {
         "Failed to connect to mTLS upstream via proxy at {}",
         url
     );
+}
+
+#[tokio::test]
+async fn test_health_check() {
+    let _ = env_logger::try_init();
+
+    // 1. Setup two mock HTTP servers
+    let mock_server1 = start_http_mock().await;
+    let mock_server2 = start_http_mock().await;
+
+    // Configure server1
+    Mock::given(method("GET"))
+        .and(path("/api"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("server1")
+                .append_header("Connection", "close"),
+        )
+        .mount(&mock_server1)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/health"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("OK")
+                .append_header("Connection", "close"),
+        )
+        .mount(&mock_server1)
+        .await;
+
+    // Configure server2
+    Mock::given(method("GET"))
+        .and(path("/api"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("server2")
+                .append_header("Connection", "close"),
+        )
+        .mount(&mock_server2)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/health"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("OK")
+                .append_header("Connection", "close"),
+        )
+        .mount(&mock_server2)
+        .await;
+
+    // 2. Configure Jokoway
+    let ups_name = "mock-health-check";
+    let mock_uri1 = mock_server1.uri();
+    let mock_addr1 = mock_uri1.trim_start_matches("http://");
+    let mock_uri2 = mock_server2.uri();
+    let mock_addr2 = mock_uri2.trim_start_matches("http://");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let config = JokowayConfig {
+        http_listen: format!("127.0.0.1:{}", port),
+        upstreams: vec![Upstream {
+            name: ups_name.to_string(),
+            servers: vec![
+                UpstreamServer {
+                    host: mock_addr1.to_string(),
+                    weight: Some(1),
+                    ..Default::default()
+                },
+                UpstreamServer {
+                    host: mock_addr2.to_string(),
+                    weight: Some(1),
+                    ..Default::default()
+                },
+            ],
+            health_check: Some(jokoway::config::models::HealthCheckConfig {
+                check_type: jokoway::config::models::HealthCheckType::Http,
+                interval: 1,
+                timeout: 1,
+                unhealthy_threshold: 2,
+                healthy_threshold: 1,
+                path: Some("/health".to_string()),
+                method: Some("GET".to_string()),
+                expected_status: Some(vec![200]),
+                headers: None,
+            }),
+            update_frequency: Some(5),
+            ..Default::default()
+        }],
+        services: vec![Arc::new(Service {
+            name: "test-health-service".to_string(),
+            host: ups_name.to_string(),
+            protocols: vec![ServiceProtocol::Http],
+            routes: vec![Route {
+                name: "test-health-route".to_string(),
+                rules: vec![Rule {
+                    rule: "PathPrefix(`/`)".to_string(),
+                    priority: Some(1),
+                    ..Default::default()
+                }],
+            }],
+            ..Default::default()
+        })],
+        ..Default::default()
+    };
+
+    // 3. Start App
+    let opt = Opt::default();
+    let app = App::new(config, None, opt, vec![], vec![]);
+
+    std::thread::spawn(move || {
+        if let Err(e) = app.run() {
+            eprintln!("App failed: {:?}", e);
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{}/api", port);
+
+    // Create client
+    let client = Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .unwrap();
+
+    sleep(Duration::from_secs(2)).await;
+
+    // 4. Phase 1: 1 request to identify server
+    println!("Phase 1: Identifying active server...");
+    let resp = client.get(&url).send().await.unwrap();
+    let first_server = resp.text().await.unwrap();
+    println!("First request handled by: {}", first_server);
+
+    // 5. Phase 2: Identify server and 'Crash' it
+    if first_server == "server1" {
+        println!("Crashing server1...");
+        mock_server1.reset().await;
+        Mock::given(any())
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_server1)
+            .await;
+    } else {
+        println!("Crashing server2...");
+        mock_server2.reset().await;
+        Mock::given(any())
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_server2)
+            .await;
+    }
+
+    // Wait for health checks to fail (3s)
+    println!("Waiting for health checks (3s)...");
+    sleep(Duration::from_secs(3)).await;
+
+    // 6. Phase 3: Run 9 requests
+    println!("Phase 3: Running 9 requests...");
+    let mut s1_count = 0;
+    let mut s2_count = 0;
+    let mut failed_count = 0;
+
+    // Use a new client just to be safe regarding connection pooling
+    let client2 = Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .unwrap();
+
+    for i in 1..=9 {
+        if let Ok(resp) = client2.get(&url).send().await {
+            if resp.status().is_success() {
+                let body = resp.text().await.unwrap();
+                println!("Request {}: {}", i, body);
+                if body == "server1" {
+                    s1_count += 1;
+                } else if body == "server2" {
+                    s2_count += 1;
+                }
+            } else {
+                println!("Request {}: Failed with status {}", i, resp.status());
+                failed_count += 1;
+            }
+        } else {
+            println!("Request {}: Connection Error", i);
+            failed_count += 1;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    // 7. Verify Results
+    println!("\nSummary:");
+    if first_server == "server1" {
+        println!("Initial (Server1): 1 (Crashed)");
+    } else {
+        println!("Initial (Server2): 1 (Crashed)");
+    }
+    println!("Subsequent (Server1): {}", s1_count);
+    println!("Subsequent (Server2): {}", s2_count);
+    println!("Failed: {}", failed_count);
+
+    // Assert that the crashed server got 0 subsequent requests
+    if first_server == "server1" {
+        assert_eq!(
+            s1_count, 0,
+            "Server1 (crashed) should have 0 subsequent requests"
+        );
+        assert_eq!(s2_count, 9, "Server2 should have 9 subsequent requests");
+    } else {
+        assert_eq!(s1_count, 9, "Server1 should have 9 subsequent requests");
+        assert_eq!(
+            s2_count, 0,
+            "Server2 (crashed) should have 0 subsequent requests"
+        );
+    }
+
+    // Also verify no failures occurred (health check should have prevented routing to dead server)
+    assert_eq!(failed_count, 0, "Should have 0 failed requests");
+
+    println!("\n✓ Health check test passed!");
 }
