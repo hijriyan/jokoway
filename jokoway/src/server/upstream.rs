@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use pingora::lb::Backends;
 use pingora::lb::discovery::ServiceDiscovery;
-use pingora::lb::{LoadBalancer, selection::weighted::Weighted};
+use pingora::lb::{LoadBalancer, selection::RoundRobin};
 use pingora::server::ShutdownWatch;
 use pingora::services::background::{BackgroundService, GenBackgroundService};
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 pub struct LbWrapper {
-    pub lb: Arc<LoadBalancer<Weighted>>,
+    pub lb: Arc<LoadBalancer<RoundRobin>>,
     pub cancellation_token: CancellationToken,
 }
 
@@ -58,7 +58,7 @@ pub type LbBackgroundService = GenBackgroundService<LbWrapper>;
 fn compile_upstream(
     upstream: &crate::config::models::Upstream,
     dns_resolver: Arc<DnsResolver>,
-) -> Result<Arc<LoadBalancer<Weighted>>, JokowayError> {
+) -> Result<Arc<LoadBalancer<RoundRobin>>, JokowayError> {
     if upstream.servers.is_empty() {
         return Err(JokowayError::Upstream(
             "Cannot create load balancer with no servers".into(),
@@ -138,7 +138,7 @@ fn compile_upstream(
 
 fn spawn_upstream_background_task(
     name: String,
-    lb: Arc<LoadBalancer<Weighted>>,
+    lb: Arc<LoadBalancer<RoundRobin>>,
     token: CancellationToken,
 ) {
     tokio::spawn(async move {
@@ -176,7 +176,7 @@ fn spawn_upstream_background_task(
 }
 
 pub struct UpstreamManager {
-    pub load_balancers: ArcSwap<HashMap<String, Arc<LoadBalancer<Weighted>>>>,
+    pub load_balancers: ArcSwap<HashMap<String, Arc<LoadBalancer<RoundRobin>>>>,
     // Track cancellation tokens for background tasks
     cancellation_tokens: Arc<DashMap<String, CancellationToken>>,
 }
@@ -229,7 +229,7 @@ impl UpstreamManager {
         ))
     }
 
-    pub fn get(&self, name: &str) -> Option<Arc<LoadBalancer<Weighted>>> {
+    pub fn get(&self, name: &str) -> Option<Arc<LoadBalancer<RoundRobin>>> {
         self.load_balancers.load().get(name).cloned()
     }
 

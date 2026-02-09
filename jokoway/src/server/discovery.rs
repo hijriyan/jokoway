@@ -51,19 +51,21 @@ impl ServiceDiscovery for JokowayUpstreamDiscovery {
                 Ok(resolved) => {
                     let count = resolved.len();
                     if count > 0 {
-                        let total_weight = server.weight.unwrap_or(1) as usize;
-                        // Distribute weight among resolved addresses, ensuring at least 1 per address
-                        let weight_per_addr = (total_weight / count).max(1);
+                        let configured_weight = server.weight.unwrap_or(1) as usize;
+                        // Give each resolved IP the full configured weight
+                        // This preserves the intended weight for each backend
+                        let weight_per_addr = configured_weight;
 
                         for addr in resolved {
                             let socket_addr = SocketAddr::new(addr, port);
                             let addr_str = socket_addr.to_string();
                             log::trace!(
-                                "Discovered backend for {}: {} with weight {} (total host weight {})",
+                                "Discovered backend for {}: {} with weight {} (configured weight: {}, resolved IPs: {})",
                                 server.host,
                                 addr_str,
                                 weight_per_addr,
-                                total_weight
+                                configured_weight,
+                                count
                             );
                             if let Ok(mut backend) =
                                 Backend::new_with_weight(&addr_str, weight_per_addr)

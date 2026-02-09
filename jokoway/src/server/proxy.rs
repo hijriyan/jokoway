@@ -336,16 +336,13 @@ impl ProxyHttp for JokowayProxy {
         let load_balancer = self.upstream_manager.get(upstream_name).ok_or_else(|| {
             Error::explain(
                 pingora::ErrorType::InternalError,
-                "Load balancer not found for upstream",
+                format!("Load balancer not found for upstream: {}", upstream_name),
             )
         })?;
 
         // Select backend using load balancer - Weighted selection (round-robin when weights are equal)
         let backend = load_balancer.select(b"", 256).ok_or_else(|| {
-            Error::explain(
-                pingora::ErrorType::InternalError,
-                "No available backend from load balancer",
-            )
+            Error::explain(pingora::ErrorType::InternalError, "No available backends")
         })?;
 
         // Get cached config with pre-loaded certificates
