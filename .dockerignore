@@ -1,0 +1,9 @@
+target
+debug
+.git
+.vscode
+.idea
+*.swp
+*.ds_store
+images
+config
