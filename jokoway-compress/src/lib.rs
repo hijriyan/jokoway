@@ -46,6 +46,49 @@ pub enum Compressor {
     Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
 }
 
+impl Compressor {
+    pub fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<Vec<u8>> {
+        match self {
+            Compressor::Gzip(encoder) => {
+                encoder.write_all(chunk)?;
+                let inner = encoder.get_mut();
+                if inner.is_empty() {
+                    return Ok(Vec::new());
+                }
+                Ok(std::mem::take(inner))
+            }
+            #[cfg(feature = "zstd")]
+            Compressor::Zstd(encoder) => {
+                encoder.write_all(chunk)?;
+                let inner = encoder.get_mut();
+                if inner.is_empty() {
+                    return Ok(Vec::new());
+                }
+                Ok(std::mem::take(inner))
+            }
+            #[cfg(feature = "brotli")]
+            Compressor::Brotli(encoder) => {
+                encoder.write_all(chunk)?;
+                let inner = encoder.get_mut();
+                if inner.is_empty() {
+                    return Ok(Vec::new());
+                }
+                Ok(std::mem::take(inner))
+            }
+        }
+    }
+
+    pub fn finish(self) -> std::io::Result<Vec<u8>> {
+        match self {
+            Compressor::Gzip(encoder) => encoder.finish(),
+            #[cfg(feature = "zstd")]
+            Compressor::Zstd(encoder) => encoder.finish(),
+            #[cfg(feature = "brotli")]
+            Compressor::Brotli(encoder) => Ok(encoder.into_inner()),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct CompressContext {
     pub compression_algo: Option<CompressionAlgo>,
@@ -197,35 +240,28 @@ impl HttpMiddleware for CompressMiddleware {
 
         if let Some(compressor) = ctx.compressor.as_mut() {
             if let Some(chunk) = body {
-                match compressor {
-                    Compressor::Gzip(encoder) => {
-                        if let Err(e) = encoder.write_all(chunk) {
-                            log::error!("Gzip compression error: {}", e);
+                match compressor.process_chunk(chunk) {
+                    Ok(data) => {
+                        if !data.is_empty() {
+                            *body = Some(bytes::Bytes::from(data));
+                        } else {
+                            *body = None;
                         }
                     }
-                    #[cfg(feature = "zstd")]
-                    Compressor::Zstd(encoder) => {
-                        if let Err(e) = encoder.write_all(chunk) {
-                            log::error!("Zstd compression error: {}", e);
-                        }
-                    }
-                    #[cfg(feature = "brotli")]
-                    Compressor::Brotli(encoder) => {
-                        if let Err(e) = encoder.write_all(chunk) {
-                            log::error!("Brotli compression error: {}", e);
-                        }
+                    Err(e) => {
+                        log::error!("Compression error: {}", e);
+                        *body = None;
                     }
                 }
-                *body = None;
             }
 
             if end_of_stream {
-                let compressed_data = match ctx.compressor.take().unwrap() {
-                    Compressor::Gzip(encoder) => encoder.finish().ok(),
-                    #[cfg(feature = "zstd")]
-                    Compressor::Zstd(encoder) => encoder.finish().ok(),
-                    #[cfg(feature = "brotli")]
-                    Compressor::Brotli(encoder) => Some(encoder.into_inner()),
+                let compressed_data = match ctx.compressor.take().unwrap().finish() {
+                    Ok(data) => Some(data),
+                    Err(e) => {
+                        log::error!("Compression finish error: {}", e);
+                        None
+                    }
                 };
 
                 if let Some(data) = compressed_data {
@@ -271,5 +307,47 @@ mod tests {
 
         // Test identity/none
         assert_eq!(mw.negotiate_compression("identity"), None);
+    }
+
+    #[test]
+    fn test_streaming_compression_gzip() {
+        let mut compressor = Compressor::Gzip(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        ));
+
+        // Feed enough data to trigger compression block output
+        // Create 2 chunks that are somewhat large but not huge
+        let chunk_size = 32 * 1024; // 32KB
+        let data = vec![b'a'; chunk_size * 5]; // 160KB total
+        let chunks: Vec<&[u8]> = data.chunks(chunk_size).collect();
+
+        let mut total_output = Vec::new();
+        let mut emitted_count = 0;
+
+        for c in chunks {
+            let output = compressor.process_chunk(c).unwrap();
+            // We expect at least some chunks to produce output before stream ends
+            if !output.is_empty() {
+                emitted_count += 1;
+                total_output.extend_from_slice(&output);
+            }
+        }
+
+        // Ensure finish also works
+        let final_chunk = compressor.finish().unwrap();
+        total_output.extend_from_slice(&final_chunk);
+        assert!(
+            emitted_count > 0,
+            "Should have emitted compressed data during streaming"
+        );
+
+        // Verify correctness of data
+        use std::io::Read;
+        let mut decoder = flate2::read::GzDecoder::new(&total_output[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        assert_eq!(decompressed, data);
     }
 }
