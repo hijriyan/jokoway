@@ -33,7 +33,7 @@ cargo build --release
 ## 🔨 Usage
 
 ```sh
-./target/release/jokoway -c jokoway.yml
+./target/release/jokoway -c config/jokoway.yml
 ```
 
-see [jokoway.yml](https://github.com/hijriyan/jokoway/blob/main/jokoway.yml) for an example config.
+see [jokoway.yml](https://raw.githubusercontent.com/hijriyan/jokoway/refs/heads/next/config/jokoway.yml) for an example config.
