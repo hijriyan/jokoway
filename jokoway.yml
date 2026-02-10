@@ -27,8 +27,8 @@ x-acme-settings: &acme_settings
 jokoway:
   http_listen: "[::]:2014"
   https_listen: "[::]:2024"
-  ssl: *ssl_settings
-  acme: *acme_settings
+  # ssl: *ssl_settings
+  # acme: *acme_settings
 
   upstreams:
     - name: "httpbin-upstream"

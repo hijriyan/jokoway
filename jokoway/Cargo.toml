@@ -40,7 +40,10 @@ utoipa = { version = "5.4.0", features = [
     "axum_extras",
     "yaml",
 ], optional = true }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"], optional = true }
+utoipa-swagger-ui = { version = "9.0.2", features = [
+    "axum",
+    "vendored",
+], optional = true }
 
 [features]
 default = ["compress-extension", "api-extension", "acme-extension"]
