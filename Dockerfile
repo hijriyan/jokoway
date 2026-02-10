@@ -25,6 +25,14 @@ RUN cargo build --release --bin jokoway
 # Check https://github.com/GoogleContainerTools/distroless for more info
 FROM gcr.io/distroless/static-debian12
 
+LABEL org.opencontainers.image.source=https://github.com/hijriyan/jokoway
+LABEL org.opencontainers.image.authors="Aprila Hijriyan"
+LABEL org.opencontainers.image.title="Jokoway"
+LABEL org.opencontainers.image.description="Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs."
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.url="https://github.com/hijriyan/jokoway"
+LABEL org.opencontainers.image.version="0.1.0-alpha.2"
+
 # Copy the statically linked binary from builder
 COPY --from=builder /app/target/release/jokoway /
 
