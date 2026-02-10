@@ -1,0 +1,308 @@
+# Jokoway Full Configuration Example
+# This file documents all available configuration options for Jokoway.
+
+# --- Reusable Anchors ---
+# You can use YAML anchors (&name) and aliases (*name) to reuse configuration blocks.
+
+x-peer-options: &peer_options
+  # Timeout for reading from the upstream peer (in seconds)
+  # Default: None (indefinite)
+  read_timeout: 30
+
+  # Timeout for idle connections (in seconds)
+  # Default: None
+  idle_timeout: 60
+
+  # Timeout for writing to the upstream peer (in seconds)
+  # Default: None
+  write_timeout: 30
+
+  # Whether to verify the upstream certificate
+  # Default: None (false/not enforced by default unless specified)
+  verify_cert: true
+
+  # Whether to verify the hostname in the upstream certificate
+  # Default: None
+  verify_hostname: true
+
+  # TCP receive buffer size (in bytes)
+  # Default: None
+  tcp_recv_buf: 4096
+
+  # SSL/TLS curves to use
+  # Default: None
+  curves: null
+
+  # Enable TCP Fast Open
+  # Default: None
+  tcp_fast_open: true
+
+  # Path to CA certificate for verifying upstream
+  # Default: None
+  cacert: null
+
+  # Path to client certificate for mTLS with upstream
+  # Default: None
+  client_cert: null
+
+  # Path to client key for mTLS with upstream
+  # Default: None
+  client_key: null
+
+  # SNI hostname to use for TLS handshakes
+  # Default: None
+  sni: null
+
+x-ssl-settings: &ssl_settings # Path to CA certificate file
+  cacert: null
+
+  # Path to server certificate file (Required for SSL/TLS)
+  server_cert: "./certs/server.crt"
+
+  # Path to server private key file (Required for SSL/TLS)
+  server_key: "./certs/server.key"
+
+  # Subject Alternative Names (for self-signed certificate)
+  sans:
+    - "localhost"
+    - "127.0.0.1"
+    - "::1"
+
+  # Minimum SSL/TLS version
+  # Values: "1.0", "1.1", "1.2", "1.3"
+  ssl_min_version: "1.0"
+
+  # Maximum SSL/TLS version
+  ssl_max_version: "1.3"
+
+  # Custom cipher suites configuration
+  cipher_suites:
+    # TLS <= 1.2 cipher suites
+    tls12:
+      - "ECDHE-ECDSA-AES128-GCM-SHA256"
+      - "ECDHE-RSA-AES128-GCM-SHA256"
+    # TLS >= 1.3 cipher suites
+    tls13:
+      - "TLS_AES_128_GCM_SHA256"
+      - "TLS_AES_256_GCM_SHA384"
+
+# --- Jokoway Core Configuration ---
+jokoway:
+  # Address to listen on for HTTP traffic
+  http_listen: "0.0.0.0:8080"
+
+  # Address to listen on for HTTPS traffic (optional)
+  https_listen: "0.0.0.0:8443"
+
+  # Enable HTTP compression (gzip/brotli/etc based on implementation) (optional)
+  # Default: false
+  compress: true
+
+  # SSL/TLS Configuration (optional)
+  # Required if https_listen is set
+  ssl: *ssl_settings
+
+  # ACME (Let's Encrypt) Configuration (optional)
+  # implementation depends on 'acme-extension' feature
+  acme:
+    # ACME Directory URL
+    # Staging: "https://acme-staging-v02.api.letsencrypt.org/directory"
+    # Production: "https://acme-v02.api.letsencrypt.org/directory"
+    ca_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+    # Email for account registration and recovery
+    email: "admin@example.com"
+
+    # JSON file to store certificates and account data
+    storage: "./data/acme.json"
+
+    # Challenge type: "http-01" or "tls-alpn-01"
+    # Default: "http-01"
+    challenge: "http-01"
+
+  # API Management Configuration (optional)
+  # implementation depends on 'api-extension' feature
+  api:
+    # Address to listen on for the management API (optional)
+    listen: "127.0.0.1:9090"
+
+    # Basic Authentication for the API (optional)
+    basic_auth:
+      username: "admin"
+      password: "secure_password"
+
+    # Rate Limiting for the API (optional)
+    rate_limit:
+      requests_per_second: 10
+      burst: 20
+
+    # OpenAPI Documentation Settings (optional)
+    openapi:
+      title: "My Custom Gateway API"
+      description: "API for managing the gateway"
+      root_path: "/docs"
+
+  # DNS Resolver Configuration (optional)
+  dns:
+    # List of nameservers
+    nameservers:
+      - "1.1.1.1"
+      - "8.8.8.8"
+
+    # Resolver timeout in seconds (optional)
+    # Default: 5
+    timeout: 5
+
+    # Number of attempts (optional)
+    # Default: 2
+    attempts: 2
+
+    # Resolution strategy (implementation specific)
+    # Values: "ipv4_then_ipv6", "ipv6_then_ipv4", "ipv4_only", "ipv6_only"
+    # Default: "ipv4_then_ipv6"
+    strategy: "ipv4_then_ipv6"
+
+    # Cache size (optional)
+    # Default: 1024
+    cache_size: 1024
+
+    # Whether to use the system hosts file
+    # Default: true
+    use_hosts_file: true
+
+  # Upstream Clusters Definition
+  upstreams:
+    - name: "backend-api"
+      # Default peer options for all servers in this upstream (can be overridden per server)
+      peer_options: *peer_options
+
+      # Health Check Configuration (optional)
+      health_check:
+        # Check type: "http", "https", or "tcp"
+        type: "http"
+
+        # Check interval in seconds
+        # Default: 10
+        interval: 10
+
+        # Timeout in seconds
+        # Default: 3
+        timeout: 3
+
+        # Number of failures before marking unhealthy
+        # Default: 3
+        unhealthy_threshold: 3
+
+        # Number of successes before marking healthy
+        # Default: 2
+        healthy_threshold: 2
+
+        # HTTP/HTTPS specific settings:
+        path: "/health"
+        method: "GET"
+        expected_status: [200, 204]
+        headers:
+          User-Check: "Pingora-Health"
+
+      # Frequency to update upstream configuration (if dynamic) (optional)
+      update_frequency: 60
+
+      # List of servers in this upstream
+      servers:
+        - host: "10.0.0.1:8080"
+          weight: 100
+          tls: false
+        - host: "10.0.0.2:8080"
+          weight: 50
+          tls: false
+          # Override peer options for this specific server
+          peer_options:
+            read_timeout: 5
+
+    - name: "secure-backend"
+      peer_options:
+        verify_cert: false # Example: self-signed certs upstream
+      servers:
+        - host: "secure.internal:8443"
+          tls: true
+
+  # Services and Routing Definition
+  services:
+    - name: "main-service"
+      host: "backend-api" # upstream name
+      protocols:
+        - "http"
+        - "https"
+      routes:
+        - name: "api-route"
+          rules:
+            - rule: "PathPrefix(`/api`)"
+              priority: 10
+              request_transformer: null
+              response_transformer: null
+
+    - name: "websocket-service"
+      host: "backend-api"
+      protocols:
+        - "ws"
+        - "wss"
+      routes:
+        - name: "chat-socket"
+          rules:
+            - rule: "PathPrefix(`/chat`)"
+
+# --- Pingora Server Configuration (Underlying Engine) ---
+# See: https://docs.rs/pingora/latest/pingora/server/configuration/struct.ServerConf.html
+pingora:
+  # Number of threads per service
+  # Default depends on core count
+  threads: 2
+
+  # Pid file path
+  pid_file: "/tmp/jokoway.pid"
+
+  # Error log file path (if daemonized)
+  # Default: Stderr
+  error_log: "/tmp/jokoway.log"
+
+  # Upgrade socket path for zero-downtime restarts
+  upgrade_sock: "/tmp/jokoway_upgrade.sock"
+
+  # Run in background
+  # Default: false
+  daemon: false
+
+  # User to switch to after daemonization (optional)
+  user: null
+
+  # Group to switch to after daemonization (optional)
+  group: null
+
+  # Work stealing between threads
+  # Default: true
+  work_stealing: true
+
+  # CA file for SSL library (optional)
+  ca_file: null
+
+  # version (optional, usize)
+  version: 1
+
+  # listener_tasks_per_fd (optional, usize)
+  # Number of listener tasks per file descriptor (for parallel accepts)
+  listener_tasks_per_fd: 1
+
+  # Grace period before final shutdown step (seconds) (optional)
+  grace_period_seconds: 60
+
+  # Timeout for final shutdown step (seconds) (optional)
+  graceful_shutdown_timeout_seconds: 30
+
+  # Client bind IPs (unstable fields, usage may vary)
+  client_bind_to_ipv4: []
+  client_bind_to_ipv6: []
+
+  # Upstream connection pooling settings (unstable fields)
+  upstream_keepalive_pool_size: 128
+  upstream_connect_offload_threadpools: null
+  upstream_connect_offload_thread_per_pool: null
