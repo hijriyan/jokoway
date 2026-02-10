@@ -271,23 +271,29 @@ impl ProxyHttp for JokowayProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool, Box<Error>> {
-        // Fast path: check middlewares first
-        for (idx, middleware) in self.http_middlewares.iter().enumerate() {
-            let middleware_ctx = &mut ctx.middleware_ctx[idx];
-            if middleware
-                .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
-                .await?
-            {
-                return Ok(true);
+        let is_upgrade = session.is_upgrade_req();
+        if is_upgrade {
+            for (idx, middleware) in self.websocket_middlewares.iter().enumerate() {
+                let middleware_ctx = &mut ctx.websocket_middleware_ctx[idx];
+                if middleware
+                    .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
+                    .await?
+                {
+                    return Ok(true);
+                }
+            }
+        } else {
+            for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+                let middleware_ctx = &mut ctx.middleware_ctx[idx];
+                if middleware
+                    .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
+                    .await?
+                {
+                    return Ok(true);
+                }
             }
         }
-
         let req_header = session.req_header_mut();
-        let is_upgrade = req_header
-            .headers
-            .get("Upgrade")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
 
         if is_upgrade {
             // Check if Connection header needs to be added
@@ -400,6 +406,9 @@ impl ProxyHttp for JokowayProxy {
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> Result<(), Box<Error>> {
+        if ctx.is_upgrade {
+            return Ok(());
+        }
         for (idx, middleware) in self.http_middlewares.iter().enumerate() {
             let middleware_ctx = &mut ctx.middleware_ctx[idx];
             middleware
@@ -413,9 +422,6 @@ impl ProxyHttp for JokowayProxy {
         }
 
         if let Some(transformer) = &ctx.response_transformer {
-            if ctx.is_upgrade {
-                return Ok(());
-            }
             transformer.transform_response(upstream_response);
         }
         Ok(())
@@ -745,6 +751,7 @@ mod tests {
 
     struct UppercaseExtension;
 
+    #[async_trait]
     impl jokoway_core::websocket::WebsocketMiddleware for UppercaseExtension {
         type CTX = ();
 

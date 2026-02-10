@@ -52,6 +52,7 @@ impl HttpMiddleware for TestHttpMiddleware {
 #[derive(Clone)]
 struct TestWsMiddleware;
 
+#[async_trait::async_trait]
 impl WebsocketMiddleware for TestWsMiddleware {
     type CTX = ();
 
@@ -328,6 +329,7 @@ fn test_websocket_middleware_ordering() {
         order: i16,
     }
 
+    #[async_trait::async_trait]
     impl WebsocketMiddleware for OrderedWsMiddleware {
         type CTX = ();
         fn name(&self) -> &'static str {

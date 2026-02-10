@@ -314,6 +314,12 @@ pub enum WebsocketMessageAction {
     Close(Option<Vec<u8>>),
 }
 
+use crate::AppCtx;
+use async_trait::async_trait;
+use pingora::Error;
+use pingora::proxy::Session;
+
+#[async_trait]
 pub trait WebsocketMiddleware: Send + Sync {
     /// Per-middleware context type
     type CTX: Send + Sync + 'static;
@@ -330,6 +336,19 @@ pub trait WebsocketMiddleware: Send + Sync {
     /// If the order of the middleware is not important, leave it to the default 0.
     fn order(&self) -> i16 {
         0
+    }
+
+    /// Called when the request is received, before routing (during upgrade handshake).
+    ///
+    /// Returns Ok(true) if the request was handled and the proxy should stop processing.
+    /// Returns Ok(false) to continue to the next filter/routing.
+    async fn request_filter(
+        &self,
+        _session: &mut Session,
+        _ctx: &mut Self::CTX,
+        _app_ctx: &AppCtx,
+    ) -> Result<bool, Box<Error>> {
+        Ok(false)
     }
 
     fn on_message(
@@ -352,12 +371,20 @@ pub trait WebsocketMiddleware: Send + Sync {
 }
 
 /// Dynamic dispatch version of WebsocketMiddleware for trait objects
+#[async_trait]
 pub trait WebsocketMiddlewareDyn: Send + Sync {
     fn name(&self) -> &'static str;
     fn order(&self) -> i16 {
         0
     }
     fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync>;
+
+    async fn request_filter_dyn(
+        &self,
+        session: &mut Session,
+        ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &AppCtx,
+    ) -> Result<bool, Box<Error>>;
 
     fn on_message_dyn(
         &self,
@@ -375,6 +402,7 @@ pub trait WebsocketMiddlewareDyn: Send + Sync {
 }
 
 /// Blanket implementation for all WebsocketMiddleware types
+#[async_trait]
 impl<T: WebsocketMiddleware> WebsocketMiddlewareDyn for T {
     fn name(&self) -> &'static str {
         WebsocketMiddleware::name(self)
@@ -386,6 +414,18 @@ impl<T: WebsocketMiddleware> WebsocketMiddlewareDyn for T {
 
     fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync> {
         Box::new(self.new_ctx())
+    }
+
+    async fn request_filter_dyn(
+        &self,
+        session: &mut Session,
+        ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &AppCtx,
+    ) -> Result<bool, Box<Error>> {
+        let ctx = ctx
+            .downcast_mut::<T::CTX>()
+            .expect("Invalid context type for WebsocketMiddleware");
+        self.request_filter(session, ctx, app_ctx).await
     }
 
     fn on_message_dyn(
