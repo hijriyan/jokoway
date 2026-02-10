@@ -361,8 +361,8 @@ impl JokowayExtension for HttpsExtension {
                 ssl_acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
             }
 
-            let tls_settings = TlsSettings::from(ssl_acceptor);
-
+            let mut tls_settings = TlsSettings::from(ssl_acceptor);
+            tls_settings.enable_h2();
             let mut https_service = http_proxy_service(&server.configuration, proxy.clone());
             https_service.add_tls_with_settings(
                 config.https_listen.as_ref().unwrap(),
