@@ -54,8 +54,6 @@ impl Default for RouteContext {
     }
 }
 
-// AppCtx has been moved to jokoway-core
-
 #[cfg(test)]
 mod tests {
     use super::AppCtx;

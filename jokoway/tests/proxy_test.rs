@@ -68,7 +68,7 @@ async fn test_http_proxy() {
 
     // 3. Start App in background thread
     let opt = Opt::default();
-    let app = App::new(config, None, opt, vec![], vec![]);
+    let app = App::new(config, None, opt, vec![]);
 
     std::thread::spawn(move || {
         // App::run blocks forever
@@ -148,7 +148,7 @@ async fn test_ws_proxy() {
 
     // 3. Start App
     let opt = Opt::default();
-    let app = App::new(config, None, opt, vec![], vec![]);
+    let app = App::new(config, None, opt, vec![]);
 
     std::thread::spawn(move || {
         if let Err(e) = app.run() {
@@ -260,14 +260,14 @@ async fn test_https_proxy() {
 
     // 4. Start App
     let opt = Opt::default();
-    let app = App::new(config, None, opt, vec![], vec![]);
+    let app = App::new(config, None, opt, vec![]);
 
     std::thread::spawn(move || {
         if let Err(e) = app.run() {
             eprintln!("App failed: {:?}", e);
         }
     });
-
+    sleep(Duration::from_millis(100)).await;
     // 5. Build Client with CA trust
     let cert = reqwest::Certificate::from_pem(certs.ca_cert.as_bytes()).unwrap();
     let client = Client::builder()
@@ -278,18 +278,13 @@ async fn test_https_proxy() {
     let url = format!("https://localhost:{}/secure", port_https);
 
     let mut success = false;
-    for _ in 0..50 {
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status() == 200 {
-                let body = resp.text().await.unwrap();
-                assert_eq!(body, "secure world");
-                success = true;
-                break;
-            }
+    if let Ok(resp) = client.get(&url).send().await {
+        if resp.status() == 200 {
+            let body = resp.text().await.unwrap();
+            assert_eq!(body, "secure world");
+            success = true;
         }
-        sleep(Duration::from_millis(100)).await;
     }
-
     assert!(success, "Failed to connect to HTTPS proxy at {}", url);
 }
 
@@ -366,7 +361,7 @@ async fn test_mtls_upstream() {
 
     // 5. Start App
     let opt = Opt::default();
-    let app = App::new(config, None, opt, vec![], vec![]);
+    let app = App::new(config, None, opt, vec![]);
 
     std::thread::spawn(move || {
         if let Err(e) = app.run() {
@@ -509,7 +504,7 @@ async fn test_health_check() {
 
     // 3. Start App
     let opt = Opt::default();
-    let app = App::new(config, None, opt, vec![], vec![]);
+    let app = App::new(config, None, opt, vec![]);
 
     std::thread::spawn(move || {
         if let Err(e) = app.run() {
@@ -525,7 +520,7 @@ async fn test_health_check() {
         .build()
         .unwrap();
 
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_millis(100)).await;
 
     // 4. Phase 1: 1 request to identify server
     println!("Phase 1: Identifying active server...");
@@ -554,8 +549,7 @@ async fn test_health_check() {
     println!("Waiting for health checks (3s)...");
     sleep(Duration::from_secs(3)).await;
 
-    // 6. Phase 3: Run 9 requests
-    println!("Phase 3: Running 9 requests...");
+    println!("Running 9 requests...");
     let mut s1_count = 0;
     let mut s2_count = 0;
     let mut failed_count = 0;
@@ -584,7 +578,7 @@ async fn test_health_check() {
             println!("Request {}: Connection Error", i);
             failed_count += 1;
         }
-        sleep(Duration::from_millis(100)).await;
+        // sleep(Duration::from_millis(10)).await;
     }
 
     // 7. Verify Results
@@ -613,6 +607,84 @@ async fn test_health_check() {
         );
     }
 
+    // Also verify no failures occurred (health check should have prevented routing to dead server)
+    assert_eq!(failed_count, 0, "Should have 0 failed requests");
+
+    // 8. restart crashed server
+    println!("\nPhase 2: Restarting crashed server...");
+    if first_server == "server1" {
+        mock_server1.reset().await;
+        Mock::given(any())
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("server1")
+                    .append_header("Connection", "close"),
+            )
+            .mount(&mock_server1)
+            .await;
+    } else {
+        mock_server2.reset().await;
+        Mock::given(any())
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("server2")
+                    .append_header("Connection", "close"),
+            )
+            .mount(&mock_server2)
+            .await;
+    }
+
+    // Wait for health checks to recover (3s)
+    println!("Waiting for health checks (3s)...");
+    sleep(Duration::from_secs(3)).await;
+
+    // 9. Run 9 requests
+    println!("Running 9 requests...");
+    let mut s1_count = 0;
+    let mut s2_count = 0;
+    let mut failed_count = 0;
+
+    // Use a new client just to be safe regarding connection pooling
+    let client3 = Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .unwrap();
+
+    for i in 1..=9 {
+        if let Ok(resp) = client3.get(&url).send().await {
+            if resp.status().is_success() {
+                let body = resp.text().await.unwrap();
+                println!("Request {}: {}", i, body);
+                if body == "server1" {
+                    s1_count += 1;
+                } else if body == "server2" {
+                    s2_count += 1;
+                }
+            } else {
+                println!("Request {}: Failed with status {}", i, resp.status());
+                failed_count += 1;
+            }
+        } else {
+            println!("Request {}: Connection Error", i);
+            failed_count += 1;
+        }
+        // sleep(Duration::from_millis(10)).await;
+    }
+
+    // 10. Verify Results
+    println!("\nSummary:");
+    if first_server == "server1" {
+        println!("Initial (Server1)");
+        assert!(!mock_server1.received_requests().await.unwrap().is_empty());
+    } else {
+        println!("Initial (Server2)");
+        assert!(!mock_server2.received_requests().await.unwrap().is_empty());
+    }
+    println!("Subsequent (Server1): {}", s1_count);
+    println!("Subsequent (Server2): {}", s2_count);
+    println!("Failed: {}", failed_count);
+
+    assert_eq!(s1_count + s2_count, 9, "Should have 9 successful requests");
     // Also verify no failures occurred (health check should have prevented routing to dead server)
     assert_eq!(failed_count, 0, "Should have 0 failed requests");
 

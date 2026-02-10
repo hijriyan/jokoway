@@ -2,12 +2,7 @@ use crate::config::ConfigBuilder;
 use crate::prelude::*;
 use crate::server::app::App;
 
-use std::sync::Arc;
-
-pub fn jokoway_main(
-    extensions: Vec<Box<dyn JokowayExtension>>,
-    websocket_middlewares: Vec<Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>>,
-) {
+pub fn jokoway_main(extensions: Vec<Box<dyn JokowayExtension>>) {
     env_logger::init();
 
     let opt = pingora::server::configuration::Opt::parse_args();
@@ -24,7 +19,7 @@ pub fn jokoway_main(
     };
 
     let (config, server_conf) = builder.build();
-    let app = App::new(config, server_conf, opt, extensions, websocket_middlewares);
+    let app = App::new(config, server_conf, opt, extensions);
     log::info!("Starting Jokoway server...");
     if let Err(e) = app.run() {
         log::error!("Fatal error: {}", e);

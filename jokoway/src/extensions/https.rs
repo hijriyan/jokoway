@@ -73,6 +73,8 @@ impl JokowayExtension for HttpsExtension {
         &self,
         server: &mut pingora::server::Server,
         app_ctx: &mut AppCtx,
+        http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+        websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = app_ctx
             .get::<JokowayConfig>()
@@ -92,14 +94,14 @@ impl JokowayExtension for HttpsExtension {
             JokowayError::Config("ServiceManager not found in AppCtx".to_string())
         })?;
 
-        let router = Router::new(
-            service_manager,
-            upstream_manager.clone(),
-            &HTTPS_PROTOCOLS,
-            // &config,
-        );
+        let router = Router::new(service_manager, upstream_manager.clone(), &HTTPS_PROTOCOLS);
         // JokowayProxy::new returns only proxy
-        let proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()))?;
+        let proxy = JokowayProxy::new(
+            router,
+            Arc::new(app_ctx.clone()),
+            http_middlewares.clone(),
+            websocket_middlewares.clone(),
+        )?;
 
         // Services are already added by App from UpstreamManager
 

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use jokoway_core::AppCtx;
+
 use jokoway_core::{HttpMiddleware, JokowayExtension};
 use pingora::Error;
 use pingora::http::ResponseHeader;
@@ -13,11 +13,16 @@ impl JokowayExtension for CompressExtension {
     fn init(
         &self,
         _server: &mut Server,
-        app_ctx: &mut AppCtx,
+        _app_ctx: &mut jokoway_core::AppCtx,
+        http_middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::HttpMiddlewareDyn>>,
+        _websocket_middlewares: &mut Vec<
+            std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
+        >,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // We don't really need AppCtx here for compression, but we keep the signature consistent
-        let _ = app_ctx;
+        let _ = _app_ctx;
         log::info!("Compress extension initialized");
+        http_middlewares.push(std::sync::Arc::new(CompressMiddleware));
         Ok(())
     }
 }

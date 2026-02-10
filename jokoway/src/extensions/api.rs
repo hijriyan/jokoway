@@ -286,6 +286,10 @@ impl JokowayExtension for ApiExtension {
         &self,
         server: &mut pingora::server::Server,
         app_ctx: &mut jokoway_core::AppCtx,
+        _http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+        _websocket_middlewares: &mut Vec<
+            std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
+        >,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let service = GenBackgroundService::new(
             "api_server".to_string(),

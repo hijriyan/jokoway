@@ -324,6 +324,14 @@ pub trait WebsocketMiddleware: Send + Sync {
     /// Create a new context instance for this middleware
     fn new_ctx(&self) -> Self::CTX;
 
+    /// The order the middleware will run
+    ///
+    /// The higher the value, the earlier it runs relative to other middlewares.
+    /// If the order of the middleware is not important, leave it to the default 0.
+    fn order(&self) -> i16 {
+        0
+    }
+
     fn on_message(
         &self,
         _direction: WebsocketDirection,
@@ -346,6 +354,9 @@ pub trait WebsocketMiddleware: Send + Sync {
 /// Dynamic dispatch version of WebsocketMiddleware for trait objects
 pub trait WebsocketMiddlewareDyn: Send + Sync {
     fn name(&self) -> &'static str;
+    fn order(&self) -> i16 {
+        0
+    }
     fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync>;
 
     fn on_message_dyn(
@@ -367,6 +378,10 @@ pub trait WebsocketMiddlewareDyn: Send + Sync {
 impl<T: WebsocketMiddleware> WebsocketMiddlewareDyn for T {
     fn name(&self) -> &'static str {
         WebsocketMiddleware::name(self)
+    }
+
+    fn order(&self) -> i16 {
+        WebsocketMiddleware::order(self)
     }
 
     fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync> {

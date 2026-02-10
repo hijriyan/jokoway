@@ -20,6 +20,7 @@ use common::{start_http_mock, start_ws_mock};
 
 // --- HTTP Middleware ---
 
+#[derive(Clone)]
 struct TestHttpMiddleware;
 
 #[async_trait::async_trait]
@@ -48,6 +49,7 @@ impl HttpMiddleware for TestHttpMiddleware {
 
 // --- WebSocket Middleware ---
 
+#[derive(Clone)]
 struct TestWsMiddleware;
 
 impl WebsocketMiddleware for TestWsMiddleware {
@@ -70,6 +72,32 @@ impl WebsocketMiddleware for TestWsMiddleware {
             frame.set_text(&modified);
         }
         WebsocketMessageAction::Forward(frame)
+    }
+}
+
+// Better TestExtension implementation
+struct ConfigurableTestExtension {
+    add_http: bool,
+    add_ws: bool,
+}
+
+impl JokowayExtension for ConfigurableTestExtension {
+    fn init(
+        &self,
+        _server: &mut pingora::server::Server,
+        _app_ctx: &mut AppCtx,
+        http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+        websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.add_http {
+            http_middlewares.push(Arc::new(TestHttpMiddleware));
+        }
+
+        if self.add_ws {
+            websocket_middlewares.push(Arc::new(TestWsMiddleware));
+        }
+
+        Ok(())
     }
 }
 
@@ -123,8 +151,11 @@ async fn test_http_middleware() {
     };
 
     // 3. Start App with Middleware
-    let mut app = App::new(config, None, Opt::default(), vec![], vec![]);
-    app.add_middleware(TestHttpMiddleware);
+    let extension = ConfigurableTestExtension {
+        add_http: true,
+        add_ws: false,
+    };
+    let app = App::new(config, None, Opt::default(), vec![Box::new(extension)]);
 
     std::thread::spawn(move || {
         if let Err(e) = app.run() {
@@ -211,8 +242,11 @@ async fn test_websocket_middleware() {
     };
 
     // 3. Start App with WS Middleware
-    let mut app = App::new(config, None, Opt::default(), vec![], vec![]);
-    app.add_websocket_middleware(TestWsMiddleware);
+    let extension = ConfigurableTestExtension {
+        add_http: false,
+        add_ws: true,
+    };
+    let app = App::new(config, None, Opt::default(), vec![Box::new(extension)]);
 
     std::thread::spawn(move || {
         if let Err(e) = app.run() {
@@ -285,4 +319,155 @@ async fn test_manual_http_downcast() {
         ctx_any.downcast_mut::<()>().is_some(),
         "Manual downcast failed!"
     );
+}
+
+#[test]
+fn test_websocket_middleware_ordering() {
+    #[derive(Clone)]
+    struct OrderedWsMiddleware {
+        order: i16,
+    }
+
+    impl WebsocketMiddleware for OrderedWsMiddleware {
+        type CTX = ();
+        fn name(&self) -> &'static str {
+            "OrderedWsMiddleware"
+        }
+        fn new_ctx(&self) -> Self::CTX {}
+        fn order(&self) -> i16 {
+            self.order
+        }
+    }
+
+    let mut middlewares: Vec<Arc<dyn jokoway::prelude::WebsocketMiddlewareDyn>> = vec![
+        Arc::new(OrderedWsMiddleware { order: 10 }),
+        Arc::new(OrderedWsMiddleware { order: 0 }),
+        Arc::new(OrderedWsMiddleware { order: -10 }),
+    ];
+
+    // Simulate App sorting logic
+    middlewares.sort_by_key(|m| std::cmp::Reverse(m.order()));
+
+    assert_eq!(middlewares[0].order(), 10);
+    assert_eq!(middlewares[1].order(), 0);
+    assert_eq!(middlewares[2].order(), -10);
+}
+
+#[test]
+fn test_remove_middleware() {
+    use pingora::server::configuration::Opt;
+
+    // --- Define Middlewares ---
+    struct MiddlewareA;
+    #[async_trait::async_trait]
+    impl HttpMiddleware for MiddlewareA {
+        type CTX = ();
+        fn name(&self) -> &'static str {
+            "MiddlewareA"
+        }
+        fn new_ctx(&self) -> Self::CTX {}
+        async fn request_filter(
+            &self,
+            _session: &mut Session,
+            _ctx: &mut Self::CTX,
+            _app_ctx: &AppCtx,
+        ) -> Result<bool, Box<pingora::Error>> {
+            Ok(false)
+        }
+    }
+
+    struct MiddlewareB;
+    #[async_trait::async_trait]
+    impl HttpMiddleware for MiddlewareB {
+        type CTX = ();
+        fn name(&self) -> &'static str {
+            "MiddlewareB"
+        }
+        fn new_ctx(&self) -> Self::CTX {}
+        async fn request_filter(
+            &self,
+            _session: &mut Session,
+            _ctx: &mut Self::CTX,
+            _app_ctx: &AppCtx,
+        ) -> Result<bool, Box<pingora::Error>> {
+            Ok(false)
+        }
+    }
+
+    // --- Define Extensions ---
+
+    struct ExtensionA;
+    impl JokowayExtension for ExtensionA {
+        fn init(
+            &self,
+            _server: &mut pingora::server::Server,
+            _app_ctx: &mut AppCtx,
+            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            http_middlewares.push(Arc::new(MiddlewareA));
+            Ok(())
+        }
+    }
+
+    struct ExtensionB;
+    impl JokowayExtension for ExtensionB {
+        fn init(
+            &self,
+            _server: &mut pingora::server::Server,
+            _app_ctx: &mut AppCtx,
+            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            // Remove A
+            let initial_len = http_middlewares.len();
+            http_middlewares.retain(|m| m.name() != "MiddlewareA");
+            assert!(
+                http_middlewares.len() < initial_len,
+                "MiddlewareA should have been removed"
+            );
+
+            // Add B
+            http_middlewares.push(Arc::new(MiddlewareB));
+            Ok(())
+        }
+    }
+
+    struct ExtensionC;
+    impl JokowayExtension for ExtensionC {
+        fn init(
+            &self,
+            _server: &mut pingora::server::Server,
+            _app_ctx: &mut AppCtx,
+            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            // Verify A is gone
+            assert!(
+                !http_middlewares.iter().any(|m| m.name() == "MiddlewareA"),
+                "MiddlewareA should not exist"
+            );
+
+            // Verify B exists
+            assert!(
+                http_middlewares.iter().any(|m| m.name() == "MiddlewareB"),
+                "MiddlewareB should exist"
+            );
+            Ok(())
+        }
+    }
+
+    // --- Run Test ---
+    let app = App::new(
+        JokowayConfig::default(),
+        None,
+        Opt::default(),
+        vec![
+            Box::new(ExtensionA),
+            Box::new(ExtensionB),
+            Box::new(ExtensionC),
+        ],
+    );
+
+    let _server = app.build().unwrap();
 }

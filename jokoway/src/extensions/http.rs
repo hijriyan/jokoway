@@ -18,6 +18,8 @@ impl JokowayExtension for HttpExtension {
         &self,
         server: &mut Server,
         app_ctx: &mut AppCtx,
+        http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+        websocket_middlewares: &mut Vec<std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = app_ctx
             .get::<JokowayConfig>()
@@ -37,7 +39,12 @@ impl JokowayExtension for HttpExtension {
             // &config,
         );
 
-        let proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()))?;
+        let proxy = JokowayProxy::new(
+            router,
+            Arc::new(app_ctx.clone()),
+            http_middlewares.clone(),
+            websocket_middlewares.clone(),
+        )?;
 
         let mut http_service = http_proxy_service(&server.configuration, proxy);
         http_service.add_tcp(&config.http_listen);

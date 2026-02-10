@@ -6,7 +6,7 @@ use crate::prelude::*;
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
 #[cfg(feature = "acme-extension")]
-use jokoway_acme::{AcmeExtension, AcmeMiddleware};
+use jokoway_acme::AcmeExtension;
 use jokoway_core::AppCtx;
 use pingora::server::Server;
 use std::sync::Arc;
@@ -18,8 +18,6 @@ pub struct App {
     pub server_conf: Option<ServerConf>,
     pub opt: Opt,
     pub extensions: Vec<Box<dyn JokowayExtension>>,
-    pub middlewares: Vec<Arc<dyn HttpMiddlewareDyn>>,
-    pub websocket_middlewares: Vec<Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>>,
     pub app_ctx: AppCtx,
 }
 
@@ -29,15 +27,12 @@ impl App {
         server_conf: Option<ServerConf>,
         opt: Opt,
         custom_extensions: Vec<Box<dyn JokowayExtension>>,
-        custom_websocket_middlewares: Vec<Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>>,
     ) -> Self {
         let mut app = Self {
             config,
             server_conf,
             opt,
             extensions: custom_extensions,
-            middlewares: Vec::new(),
-            websocket_middlewares: custom_websocket_middlewares,
             app_ctx: AppCtx::new(),
         };
 
@@ -46,11 +41,7 @@ impl App {
         #[cfg(feature = "acme-extension")]
         if let Some(acme_settings) = &app.config.acme {
             let acme_ext = AcmeExtension::new(acme_settings);
-            let acme_middleware = AcmeMiddleware {
-                acme_manager: acme_ext.acme_manager.clone(),
-            };
-            app.add_extension(acme_ext.clone());
-            app.add_middleware(acme_middleware);
+            app.add_extension(acme_ext);
         }
 
         app.add_extension(DnsExtension);
@@ -60,9 +51,8 @@ impl App {
         #[cfg(feature = "compress-extension")]
         {
             if app.config.compress == Some(true) {
-                use jokoway_compress::{CompressExtension, CompressMiddleware};
+                use jokoway_compress::CompressExtension;
                 app.add_extension(CompressExtension);
-                app.add_middleware(CompressMiddleware);
             }
         }
 
@@ -83,24 +73,6 @@ impl App {
 
     pub fn add_extension<E: JokowayExtension + 'static>(&mut self, extension: E) {
         self.extensions.push(Box::new(extension));
-    }
-
-    /// Add middleware to the app.
-    ///
-    /// Middlewares are sorted by order (higher values run first).
-    /// If multiple middlewares have the same order, they execute in insertion order.
-    pub fn add_middleware<M: HttpMiddleware + 'static>(&mut self, middleware: M) {
-        self.middlewares.push(Arc::new(middleware));
-        // Stable sort - maintains insertion order for same values
-        self.middlewares
-            .sort_by_key(|b| std::cmp::Reverse(b.order()));
-    }
-
-    pub fn add_websocket_middleware<E: jokoway_core::websocket::WebsocketMiddleware + 'static>(
-        &mut self,
-        extension: E,
-    ) {
-        self.websocket_middlewares.push(Arc::new(extension));
     }
 
     pub fn app_ctx(&self) -> &AppCtx {
@@ -133,10 +105,6 @@ impl App {
             server.add_service(service);
         }
 
-        // Share global filters and websocket extensions
-        app_ctx.insert(self.middlewares);
-        app_ctx.insert(self.websocket_middlewares);
-
         // Share core managers for dependency injection within extensions
         app_ctx.insert(upstream_manager);
         app_ctx.insert(service_manager);
@@ -145,8 +113,22 @@ impl App {
         self.extensions
             .sort_by_key(|e| std::cmp::Reverse(e.order()));
 
-        for ext in &self.extensions {
-            ext.init(&mut server, &mut app_ctx)?;
+        let mut middlewares: Vec<Arc<dyn HttpMiddlewareDyn>> = Vec::new();
+        let mut websocket_middlewares: Vec<
+            Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
+        > = Vec::new();
+
+        for i in 0..self.extensions.len() {
+            self.extensions[i].init(
+                &mut server,
+                &mut app_ctx,
+                &mut middlewares,
+                &mut websocket_middlewares,
+            )?;
+
+            middlewares.sort_by_key(|b| std::cmp::Reverse(b.order()));
+
+            websocket_middlewares.sort_by_key(|b| std::cmp::Reverse(b.order()));
         }
 
         Ok(server)
@@ -337,5 +319,65 @@ mod tests {
         assert_eq!(extensions[0].order(), 10);
         assert_eq!(extensions[1].order(), 0);
         assert_eq!(extensions[2].order(), -10);
+    }
+
+    #[test]
+    fn test_extension_returns_middleware() {
+        use crate::prelude::JokowayExtension;
+        use crate::server::app::App;
+        use pingora::server::configuration::Opt;
+
+        struct MwExtension;
+        #[async_trait]
+        impl JokowayExtension for MwExtension {
+            fn init(
+                &self,
+                _server: &mut pingora::server::Server,
+                _app_ctx: &mut AppCtx,
+                http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+                _websocket_middlewares: &mut Vec<
+                    std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
+                >,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                let mw = DefaultMiddleware;
+                http_middlewares.push(Arc::new(mw));
+                Ok(())
+            }
+        }
+
+        struct VerifierExtension;
+
+        impl JokowayExtension for VerifierExtension {
+            fn order(&self) -> i16 {
+                -10 // Run after MwExtension (default 0)
+            }
+
+            fn init(
+                &self,
+                _server: &mut pingora::server::Server,
+                _app_ctx: &mut AppCtx,
+                http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+                _websocket_middlewares: &mut Vec<
+                    std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
+                >,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                // Verify that the middleware from MwExtension is present
+                assert!(
+                    http_middlewares
+                        .iter()
+                        .any(|m| m.name() == "DefaultMiddleware")
+                );
+                Ok(())
+            }
+        }
+
+        let app = App::new(
+            JokowayConfig::default(),
+            None,
+            Opt::default(),
+            vec![Box::new(MwExtension), Box::new(VerifierExtension)],
+        );
+
+        let _server = app.build().unwrap();
     }
 }

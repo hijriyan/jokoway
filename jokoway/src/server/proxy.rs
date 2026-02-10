@@ -44,15 +44,22 @@ pub struct CachedPeerConfig {
     pub options: ConfigPeerOptions,
     pub ca_certs: Option<Arc<Box<[X509]>>>,
     pub client_cert_key: Option<Arc<CertKey>>,
+    pub curves: Option<&'static str>,
     pub tls: bool,
 }
 
 impl CachedPeerConfig {
     pub fn new(options: ConfigPeerOptions, tls: bool) -> Result<Self, JokowayError> {
+        let curves = options
+            .curves
+            .as_ref()
+            .map(|c| Box::leak(c.clone().into_boxed_str()) as &'static str);
+
         let mut cached = Self {
             options: options.clone(),
             ca_certs: None,
             client_cert_key: None,
+            curves,
             tls,
         };
 
@@ -118,8 +125,8 @@ impl CachedPeerConfig {
         if let Some(tcp_recv_buf) = self.options.tcp_recv_buf {
             peer_options.tcp_recv_buf = Some(tcp_recv_buf);
         }
-        if let Some(ref curves) = self.options.curves {
-            peer_options.curves = Some(Box::leak(curves.clone().into_boxed_str()));
+        if let Some(curves) = self.curves {
+            peer_options.curves = Some(curves);
         }
         if let Some(tcp_fast_open) = self.options.tcp_fast_open {
             peer_options.tcp_fast_open = tcp_fast_open;
@@ -152,24 +159,24 @@ pub struct JokowayProxy {
 }
 
 impl JokowayProxy {
-    pub fn new(router: Arc<Router>, app_ctx: Arc<AppCtx>) -> Result<Self, JokowayError> {
+    pub fn new(
+        router: Arc<Router>,
+        app_ctx: Arc<AppCtx>,
+        http_middlewares: Vec<Arc<dyn HttpMiddlewareDyn>>,
+        websocket_middlewares: Vec<Arc<dyn WebsocketMiddlewareDyn>>,
+    ) -> Result<Self, JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
             .ok_or_else(|| JokowayError::Config("JokowayConfig not found in AppCtx".to_string()))?;
-        let middlewares = app_ctx
-            .get::<Vec<Arc<dyn HttpMiddlewareDyn>>>()
-            .unwrap_or_else(|| Arc::new(Vec::new()));
-        let websocket_middlewares = app_ctx
-            .get::<Vec<Arc<dyn WebsocketMiddlewareDyn>>>()
-            .unwrap_or_else(|| Arc::new(Vec::new()));
+
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
         })?;
         Ok(JokowayProxy {
             config,
             router,
-            http_middlewares: middlewares,
-            websocket_middlewares,
+            http_middlewares: Arc::new(http_middlewares),
+            websocket_middlewares: Arc::new(websocket_middlewares),
             app_ctx,
             upstream_manager,
         })
@@ -862,7 +869,7 @@ mod tests {
         );
 
         // Create the proxy with load balancers
-        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()))
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), Vec::new())
             .expect("Failed to create JokowayProxy");
 
         // Verify load balancer was created
@@ -939,7 +946,7 @@ mod tests {
             // &config,
         );
 
-        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()))
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), Vec::new())
             .expect("Failed to create JokowayProxy");
 
         let load_balancer = upstream_manager.get("test_upstream").unwrap();
@@ -1003,7 +1010,7 @@ mod tests {
             // &config,
         );
 
-        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()))
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), Vec::new())
             .expect("Failed to create JokowayProxy");
 
         // Should not create load balancer for empty upstream

@@ -271,6 +271,8 @@ pub trait JokowayExtension: Send + Sync {
         &self,
         _server: &mut Server,
         _app_ctx: &mut AppCtx,
+        _http_middlewares: &mut Vec<Arc<dyn HttpMiddlewareDyn>>,
+        _websocket_middlewares: &mut Vec<Arc<dyn crate::websocket::WebsocketMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

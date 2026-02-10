@@ -167,7 +167,7 @@ impl AcmeManager {
     }
 
     /// Retrieve the key authorization for a given token.
-    /// This should be called by the HTTP server when handling /.well-known/acme-challenge/<token>
+    /// This should be called by the HTTP server when handling `/.well-known/acme-challenge/<token>`
     pub fn get_challenge(&self, token: &str) -> Option<String> {
         self.challenges.get(token).map(|v| v.value().clone())
     }
@@ -542,8 +542,6 @@ impl AcmeManager {
 
 // --- AcmeExtension & Middleware ---
 
-// HostProvider trait removed
-
 #[derive(Clone)]
 pub struct AcmeExtension {
     pub acme_manager: Arc<AcmeManager>,
@@ -608,17 +606,25 @@ impl JokowayExtension for AcmeExtension {
         &self,
         server: &mut Server,
         app_ctx: &mut jokoway_core::AppCtx,
+        http_middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::HttpMiddlewareDyn>>,
+        _websocket_middlewares: &mut Vec<
+            std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
+        >,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let renewal_service = AcmeRenewalService {
             acme: self.acme_manager.clone(),
         };
-        let bg_service = background_service("acme_renewal", renewal_service);
-        server.add_service(bg_service);
+        server.add_service(background_service("acme_renewal", renewal_service));
 
         // Share AcmeManager with other extensions (e.g. HttpsExtension)
         // We clone the inner AcmeManager handle and insert it so get::<AcmeManager>() works
         app_ctx.insert((*self.acme_manager).clone());
 
+        let middleware = AcmeMiddleware {
+            acme_manager: self.acme_manager.clone(),
+        };
+
+        http_middlewares.push(std::sync::Arc::new(middleware));
         Ok(())
     }
 }
