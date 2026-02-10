@@ -26,73 +26,73 @@ use utoipa_swagger_ui::SwaggerUi;
 // API Models
 
 // Upstream requests
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddUpstreamRequest {
     pub upstream: Upstream,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdateUpstreamRequest {
     pub name: String,
     pub upstream: Upstream,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RemoveUpstreamRequest {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VerifyUpstreamRequest {
     pub name: String,
 }
 
 // Service requests
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddServiceRequest {
     pub service: Service,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdateServiceRequest {
     pub name: String,
     pub service: Service,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RemoveServiceRequest {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VerifyServiceRequest {
     pub name: String,
 }
 
 // Common responses
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SuccessResponse {
     pub success: bool,
     pub message: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
     pub success: bool,
     pub error: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpstreamListResponse {
     pub upstreams: Vec<String>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ServiceListResponse {
     pub services: Vec<ServiceInfo>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ServiceInfo {
     pub name: String,
     pub host: String,
@@ -111,7 +111,7 @@ impl From<RuntimeService> for ServiceInfo {
     }
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct VerifyResponse {
     pub exists: bool,
 }
@@ -266,7 +266,11 @@ impl BackgroundService for ApiService {
         match TcpListener::bind(listen_addr).await {
             Ok(listener) => {
                 log::info!("API server listening on {}", listen_addr);
-                let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+                let server = axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                )
+                .with_graceful_shutdown(async move {
                     let _ = shutdown.changed().await;
                 });
 
