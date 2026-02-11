@@ -213,7 +213,7 @@ pub async fn start_mtls_mock(certs: &Certs) -> (String, tokio::task::JoinHandle<
 
                 // Read HTTP request (optional, but good to consume)
                 let mut buf = [0u8; 1024];
-                if let Ok(_) = stream.read(&mut buf).await {
+                if stream.read(&mut buf).await.is_ok() {
                     // Simple HTTP response
                     let _ = stream
                         .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nmTLS OK")

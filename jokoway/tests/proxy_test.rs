@@ -61,7 +61,6 @@ async fn test_http_proxy() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };
@@ -84,13 +83,14 @@ async fn test_http_proxy() {
     let mut success = false;
     for _ in 0..50 {
         // 5 seconds timeout
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status() == 200 {
-                let body = resp.text().await.unwrap();
-                assert_eq!(body, "world");
-                success = true;
-                break;
-            }
+        // 5 seconds timeout
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status() == 200
+        {
+            let body = resp.text().await.unwrap();
+            assert_eq!(body, "world");
+            success = true;
+            break;
         }
         sleep(Duration::from_millis(100)).await;
     }
@@ -141,7 +141,6 @@ async fn test_ws_proxy() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };
@@ -253,7 +252,6 @@ async fn test_https_proxy() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };
@@ -278,12 +276,12 @@ async fn test_https_proxy() {
     let url = format!("https://localhost:{}/secure", port_https);
 
     let mut success = false;
-    if let Ok(resp) = client.get(&url).send().await {
-        if resp.status() == 200 {
-            let body = resp.text().await.unwrap();
-            assert_eq!(body, "secure world");
-            success = true;
-        }
+    if let Ok(resp) = client.get(&url).send().await
+        && resp.status() == 200
+    {
+        let body = resp.text().await.unwrap();
+        assert_eq!(body, "secure world");
+        success = true;
     }
     assert!(success, "Failed to connect to HTTPS proxy at {}", url);
 }
@@ -354,7 +352,6 @@ async fn test_mtls_upstream() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };
@@ -377,12 +374,12 @@ async fn test_mtls_upstream() {
 
     let mut success = false;
     for _ in 0..50 {
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status() == 200 {
-                // Our mock server returns 200 OK
-                success = true;
-                break;
-            }
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status() == 200
+        {
+            // Our mock server returns 200 OK
+            success = true;
+            break;
         }
         sleep(Duration::from_millis(100)).await;
     }
@@ -497,7 +494,6 @@ async fn test_health_check() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };

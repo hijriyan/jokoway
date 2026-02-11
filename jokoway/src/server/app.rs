@@ -4,6 +4,7 @@ use crate::extensions::http::HttpExtension;
 use crate::extensions::https::HttpsExtension;
 use crate::prelude::*;
 use crate::server::service::ServiceManager;
+
 use crate::server::upstream::UpstreamManager;
 #[cfg(feature = "acme-extension")]
 use jokoway_acme::{AcmeConfigExt, AcmeExtension};
@@ -50,9 +51,31 @@ impl App {
 
         #[cfg(feature = "compress-extension")]
         {
-            if app.config.compress == Some(true) {
-                use jokoway_compress::CompressExtension;
-                app.add_extension(CompressExtension);
+            use jokoway_compress::{
+                BrotliConfig, CompressExtension, CompressionConfig, CompressionConfigExt,
+                GzipConfig, ZstdConfig,
+            };
+
+            // Only enable compression if explicitly configured
+            // compression: None means "no compression at all"
+            if let Some(compression_settings) = app.config.compression() {
+                let config = CompressionConfig {
+                    min_size: compression_settings.min_size.unwrap_or(1024),
+                    gzip: compression_settings.gzip.as_ref().map(|g| GzipConfig {
+                        level: g.level.unwrap_or(6),
+                    }),
+                    #[cfg(feature = "compress-brotli")]
+                    brotli: compression_settings.brotli.as_ref().map(|b| BrotliConfig {
+                        quality: b.quality.unwrap_or(5),
+                        lgwin: b.lgwin.unwrap_or(22),
+                        buffer_size: b.buffer_size.unwrap_or(4096),
+                    }),
+                    #[cfg(feature = "compress-zstd")]
+                    zstd: compression_settings.zstd.as_ref().map(|z| ZstdConfig {
+                        level: z.level.unwrap_or(3),
+                    }),
+                };
+                app.add_extension(CompressExtension::new(config));
             }
         }
 
@@ -96,18 +119,16 @@ impl App {
 
         // Initialize UpstreamManager
         let (upstream_manager, lb_services) = UpstreamManager::new(&app_ctx)?;
+        app_ctx.insert(upstream_manager);
 
         // Initialize ServiceManager
         let service_manager = ServiceManager::new(config_arc.clone())?;
+        app_ctx.insert(service_manager);
 
         // Add LB background services
         for service in lb_services {
             server.add_service(service);
         }
-
-        // Share core managers for dependency injection within extensions
-        app_ctx.insert(upstream_manager);
-        app_ctx.insert(service_manager);
 
         // Stable sort - maintains insertion order for same values
         self.extensions

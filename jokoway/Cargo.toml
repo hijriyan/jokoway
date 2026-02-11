@@ -55,7 +55,7 @@ api-extension = [
     "dep:utoipa-swagger-ui",
     "jokoway-core/api-extension",
 ]
-acme-extension = ["dep:jokoway-acme", "jokoway-core/acme-extension"]
+acme-extension = ["dep:jokoway-acme"]
 compress-zstd = ["jokoway-compress/zstd"]
 compress-brotli = ["jokoway-compress/brotli"]
 

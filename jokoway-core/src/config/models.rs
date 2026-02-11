@@ -25,8 +25,6 @@ pub struct JokowayConfig {
     pub services: Vec<Arc<Service>>,
     #[serde(default)]
     pub dns: Option<DnsSettings>,
-    #[serde(default)]
-    pub compress: Option<bool>,
 
     // Allow for extra configuration that might not be strictly defined
     #[serde(flatten)]
@@ -115,7 +113,6 @@ fn default_openapi_root_path() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
 pub struct OpenApiSettings {
     #[serde(default = "default_openapi_title")]
     pub title: String,

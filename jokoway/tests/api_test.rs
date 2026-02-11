@@ -256,7 +256,6 @@ async fn test_api_services() {
                 ..Default::default()
             }],
         }],
-        ..Default::default()
     };
     let resp = client
         .post(format!("{}/services/add", base_url))
@@ -290,7 +289,6 @@ async fn test_api_services() {
                 ..Default::default()
             }],
         }],
-        ..Default::default()
     };
     let resp = client
         .post(format!("{}/services/update", base_url))
@@ -394,7 +392,6 @@ async fn test_proxy_via_api() {
                 ..Default::default()
             }],
         }],
-        ..Default::default()
     };
     let resp = client
         .post(format!("{}/services/add", api_base))

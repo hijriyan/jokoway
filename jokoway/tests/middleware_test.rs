@@ -146,7 +146,6 @@ async fn test_http_middleware() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };
@@ -170,11 +169,11 @@ async fn test_http_middleware() {
 
     let mut success = false;
     for _ in 0..50 {
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status() == 200 {
-                success = true;
-                break;
-            }
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status() == 200
+        {
+            success = true;
+            break;
         }
         sleep(Duration::from_millis(100)).await;
     }
@@ -237,7 +236,6 @@ async fn test_websocket_middleware() {
                     ..Default::default()
                 }],
             }],
-            ..Default::default()
         })],
         ..Default::default()
     };

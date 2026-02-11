@@ -24,4 +24,3 @@ utoipa = { version = "5.4.0", features = [
 
 [features]
 api-extension = ["dep:utoipa"]
-acme-extension = []

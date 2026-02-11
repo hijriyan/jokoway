@@ -1703,6 +1703,8 @@ dependencies = [
  "jokoway-core",
  "log",
  "pingora",
+ "serde",
+ "serde_yaml",
  "zstd",
 ]
 

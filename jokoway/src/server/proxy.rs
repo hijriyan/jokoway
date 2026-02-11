@@ -759,9 +759,7 @@ mod tests {
             "UppercaseExtension"
         }
 
-        fn new_ctx(&self) -> Self::CTX {
-            ()
-        }
+        fn new_ctx(&self) -> Self::CTX {}
 
         fn on_message(
             &self,

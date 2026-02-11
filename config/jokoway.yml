@@ -94,9 +94,46 @@ jokoway:
   # Address to listen on for HTTPS traffic (optional)
   https_listen: "0.0.0.0:8443"
 
-  # Enable HTTP compression (gzip/brotli/etc based on implementation) (optional)
-  # Default: false
-  compress: true
+  # HTTP Compression Configuration (optional)
+  compression:
+    # Minimum response size to compress in bytes (optional)
+    # Default: 1024
+    min_size: 1024
+
+    # Gzip compression settings
+    gzip:
+      # Compression level 1-9 (optional)
+      # Default: 6
+      level: 6
+
+    # Brotli compression settings (requires 'brotli' feature)
+    brotli:
+      # Compression quality 1-11 (optional)
+      # Default: 5
+      quality: 5
+      lgwin: 22
+      buffer_size: 16384
+
+    # Zstd compression settings (requires 'zstd' feature)
+    zstd:
+      # Compression level 1-22 (optional)
+      # Default: 3
+      level: 3
+
+    # Content types to compress (optional)
+    # If not specified, uses industry-standard compressible types
+    content_types:
+      - "text/html"
+      - "text/css"
+      - "text/javascript"
+      - "application/javascript"
+      - "application/json"
+      - "application/xml"
+      - "text/xml"
+      - "text/plain"
+      - "text/markdown"
+      - "image/svg+xml"
+      - "text/*"
 
   # SSL/TLS Configuration (optional)
   # Required if https_listen is set
