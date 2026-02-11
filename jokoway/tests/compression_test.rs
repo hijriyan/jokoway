@@ -15,7 +15,7 @@ mod common;
 use common::start_http_mock;
 
 #[tokio::test]
-async fn test_default_gzip_enabled() {
+async fn test_compression() {
     let _ = env_logger::try_init();
 
     // 1. Setup Mock
@@ -67,48 +67,111 @@ async fn test_default_gzip_enabled() {
         })
         .with_compression(CompressionSettings {
             gzip: Some(GzipSettings::default()),
+            #[cfg(feature = "compress-brotli")]
+            brotli: Some(jokoway_compress::BrotliSettings::default()),
+            #[cfg(feature = "compress-zstd")]
+            zstd: Some(jokoway_compress::ZstdSettings::default()),
             ..Default::default()
         })
         .build();
 
     let app = App::new(config, server_conf, Opt::default(), vec![]);
 
-    std::thread::spawn(move || {
-        if let Err(e) = app.run() {
-            eprintln!("App failed: {:?}", e);
-        }
-    });
+    std::thread::spawn(move || if let Err(_e) = app.run() {});
 
     // 4. Test
     // Disable auto-decompression to verify Content-Encoding header
-    let client = Client::builder().no_deflate().build().unwrap();
+    let client = Client::builder()
+        .no_deflate()
+        .no_brotli()
+        .no_zstd()
+        .no_gzip()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
     let url = format!("http://127.0.0.1:{}/compress", port);
 
-    // Wait for server
+    // Wait for server to be ready
+    let mut ready = false;
     for _ in 0..50 {
         if client.get(&url).send().await.is_ok() {
+            ready = true;
             break;
         }
         sleep(Duration::from_millis(100)).await;
     }
+    assert!(ready, "Server failed to start in time");
 
-    // Request with gzip support
     let resp = client
         .get(&url)
-        .header("Accept-Encoding", "gzip, br")
+        .header("Accept-Encoding", "gzip")
         .send()
         .await
-        .expect("Failed to send request");
-
+        .expect("Failed to send 4.1 request");
     assert_eq!(resp.status(), 200);
-
-    // Check Content-Encoding header
-    // If enabled by default, it should be gzip.
-    // If my logic was only inside the `if let Some`, then this will fail, exposing the flaw.
     let encoding = resp
         .headers()
         .get("content-encoding")
         .map(|v| v.to_str().unwrap());
+    assert_eq!(encoding, Some("gzip"), "Should use gzip when requested");
 
-    assert_eq!(encoding, Some("gzip"), "Gzip should be enabled by default");
+    let bytes = resp.bytes().await.unwrap();
+    println!("Gzip response: {} bytes", bytes.len());
+
+    #[cfg(feature = "compress-brotli")]
+    {
+        let resp = client
+            .get(&url)
+            .header("Accept-Encoding", "gzip, br")
+            .send()
+            .await
+            .expect("Failed to send 4.2 request");
+        assert_eq!(resp.status(), 200);
+        let encoding = resp
+            .headers()
+            .get("content-encoding")
+            .map(|v| v.to_str().unwrap());
+        assert_eq!(encoding, Some("br"), "Brotli should be preferred over gzip");
+
+        let bytes = resp.bytes().await.unwrap();
+        println!("Brotli response: {} bytes", bytes.len());
+    }
+
+    #[cfg(all(feature = "compress-brotli", feature = "compress-zstd"))]
+    {
+        let resp = client
+            .get(&url)
+            .header("Accept-Encoding", "gzip, br, zstd")
+            .send()
+            .await
+            .expect("Failed to send 4.3 request");
+        assert_eq!(resp.status(), 200);
+        let encoding = resp
+            .headers()
+            .get("content-encoding")
+            .map(|v| v.to_str().unwrap());
+        assert_eq!(encoding, Some("br"), "Brotli should be preferred over all");
+
+        let bytes = resp.bytes().await.unwrap();
+        println!("Brotli (all) response: {} bytes", bytes.len());
+    }
+
+    #[cfg(feature = "compress-zstd")]
+    {
+        let resp = client
+            .get(&url)
+            .header("Accept-Encoding", "gzip, zstd")
+            .send()
+            .await
+            .expect("Failed to send 4.4 request");
+        assert_eq!(resp.status(), 200);
+        let encoding = resp
+            .headers()
+            .get("content-encoding")
+            .map(|v| v.to_str().unwrap());
+        assert_eq!(encoding, Some("zstd"), "Zstd should be preferred over gzip");
+
+        let bytes = resp.bytes().await.unwrap();
+        println!("Zstd response: {} bytes", bytes.len());
+    }
 }

@@ -310,28 +310,22 @@ impl Compressor {
         match self {
             Compressor::Gzip(encoder) => {
                 encoder.write_all(chunk)?;
+                encoder.flush()?;
                 let inner = encoder.get_mut();
-                if inner.is_empty() {
-                    return Ok(Vec::new());
-                }
                 Ok(std::mem::take(inner))
             }
             #[cfg(feature = "zstd")]
             Compressor::Zstd(encoder) => {
                 encoder.write_all(chunk)?;
+                encoder.flush()?;
                 let inner = encoder.get_mut();
-                if inner.is_empty() {
-                    return Ok(Vec::new());
-                }
                 Ok(std::mem::take(inner))
             }
             #[cfg(feature = "brotli")]
             Compressor::Brotli(encoder) => {
                 encoder.write_all(chunk)?;
+                encoder.flush()?;
                 let inner = encoder.get_mut();
-                if inner.is_empty() {
-                    return Ok(Vec::new());
-                }
                 Ok(std::mem::take(inner))
             }
         }
@@ -341,9 +335,15 @@ impl Compressor {
         match self {
             Compressor::Gzip(encoder) => encoder.finish(),
             #[cfg(feature = "zstd")]
-            Compressor::Zstd(encoder) => encoder.finish(),
+            Compressor::Zstd(mut encoder) => {
+                encoder.flush()?;
+                encoder.finish()
+            }
             #[cfg(feature = "brotli")]
-            Compressor::Brotli(encoder) => Ok(encoder.into_inner()),
+            Compressor::Brotli(mut encoder) => {
+                encoder.flush()?;
+                Ok(encoder.into_inner())
+            }
         }
     }
 }
@@ -575,28 +575,27 @@ impl HttpMiddleware for CompressMiddleware {
                 return Ok(());
             }
 
-            // Check content type
-            let content_type = upstream_response
+            // Check Content-Length if available to apply size threshold
+            if upstream_response
                 .headers
-                .get("Content-Type")
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.split(';').next().unwrap_or(s).trim()); // Remove charset if present
-
-            if !ctx.config.should_compress_type(content_type) {
+                .get("Content-Length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&len| !ctx.config.should_compress_by_size(Some(len), 0))
+                .is_some()
+            {
                 ctx.compression_algo = None;
                 ctx.should_compress = false;
                 return Ok(());
             }
 
-            // Check Content-Length if available to apply size threshold
-            if upstream_response
+            // Check Content-Type to see if it's compressible
+            let content_type = upstream_response
                 .headers
-                .get("Content-Length")
-                .and_then(|h| h.to_str().ok())
-                .and_then(|s| s.parse::<usize>().ok())
-                .filter(|&len| !ctx.config.should_compress_by_size(Some(len), 0))
-                .is_some()
-            {
+                .get("Content-Type")
+                .and_then(|v| v.to_str().ok());
+
+            if !ctx.config.should_compress_type(content_type) {
                 ctx.compression_algo = None;
                 ctx.should_compress = false;
                 return Ok(());
@@ -617,6 +616,9 @@ impl HttpMiddleware for CompressMiddleware {
 
             // Add Vary header
             let _ = upstream_response.append_header("Vary", "Accept-Encoding");
+
+            // Ensure Transfer-Encoding is chunked since Content-Length is removed
+            let _ = upstream_response.insert_header("Transfer-Encoding", "chunked");
 
             // Initialize compressor with configurable levels
             let compressor = match algo {
@@ -685,28 +687,18 @@ impl HttpMiddleware for CompressMiddleware {
         }
 
         let start = std::time::Instant::now();
+        let mut out_data = Vec::new();
 
         if let Some(compressor) = ctx.compressor.as_mut() {
             if let Some(chunk) = body {
-                // Update current size tracking
                 ctx.current_size += chunk.len();
-
-                // Check size threshold if not yet determined
-                if !ctx.config.should_compress_by_size(None, ctx.current_size) {
-                    // Size too small, fallback to uncompressed
-                    ctx.compression_algo = None;
-                    ctx.should_compress = false;
-                    return Ok(None);
-                }
-
-                // Safe compression with error handling
                 match self.safe_compress_chunk(compressor, chunk) {
                     Ok(Some(data)) => {
-                        *body = Some(bytes::Bytes::from(data));
+                        if !data.is_empty() {
+                            out_data.extend_from_slice(&data);
+                        }
                     }
-                    Ok(None) => {
-                        *body = None; // Empty compressed data
-                    }
+                    Ok(None) => {}
                     Err(e) => {
                         return Err(Error::because(
                             pingora::ErrorType::InternalError,
@@ -716,16 +708,17 @@ impl HttpMiddleware for CompressMiddleware {
                     }
                 }
             }
+        }
 
-            if end_of_stream {
-                // Finalize compression with safe handling
-                match self.safe_finish_compression(ctx.compressor.take()) {
+        if end_of_stream {
+            if let Some(compressor) = ctx.compressor.take() {
+                match self.safe_finish_compression(Some(compressor)) {
                     Ok(Some(data)) => {
-                        *body = Some(bytes::Bytes::from(data));
+                        if !data.is_empty() {
+                            out_data.extend_from_slice(&data);
+                        }
                     }
-                    Ok(None) => {
-                        *body = None;
-                    }
+                    Ok(None) => {}
                     Err(e) => {
                         return Err(Error::because(
                             pingora::ErrorType::InternalError,
@@ -735,6 +728,17 @@ impl HttpMiddleware for CompressMiddleware {
                     }
                 }
             }
+        }
+
+        if out_data.is_empty() {
+            if end_of_stream {
+                *body = None;
+            } else {
+                // Return an empty chunk instead of None to keep the stream alive
+                *body = Some(bytes::Bytes::new());
+            }
+        } else {
+            *body = Some(bytes::Bytes::from(out_data));
         }
 
         Ok(Some(start.elapsed()))
