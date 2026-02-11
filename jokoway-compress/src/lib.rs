@@ -689,8 +689,8 @@ impl HttpMiddleware for CompressMiddleware {
         let start = std::time::Instant::now();
         let mut out_data = Vec::new();
 
-        if let Some(compressor) = ctx.compressor.as_mut() {
-            if let Some(chunk) = body {
+        if let Some(compressor) = ctx.compressor.as_mut()
+            && let Some(chunk) = body {
                 ctx.current_size += chunk.len();
                 match self.safe_compress_chunk(compressor, chunk) {
                     Ok(Some(data)) => {
@@ -708,10 +708,9 @@ impl HttpMiddleware for CompressMiddleware {
                     }
                 }
             }
-        }
 
-        if end_of_stream {
-            if let Some(compressor) = ctx.compressor.take() {
+        if end_of_stream
+            && let Some(compressor) = ctx.compressor.take() {
                 match self.safe_finish_compression(Some(compressor)) {
                     Ok(Some(data)) => {
                         if !data.is_empty() {
@@ -728,7 +727,6 @@ impl HttpMiddleware for CompressMiddleware {
                     }
                 }
             }
-        }
 
         if out_data.is_empty() {
             if end_of_stream {

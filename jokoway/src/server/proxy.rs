@@ -778,7 +778,7 @@ mod tests {
     fn websocket_middleware_transform() {
         // Test direct middleware usage first
         let middleware = UppercaseExtension;
-        let mut ctx = middleware.new_ctx();
+        middleware.new_ctx();
         let frame = WsFrame {
             fin: true,
             rsv1: false,
@@ -791,7 +791,7 @@ mod tests {
         match middleware.on_message(
             WebsocketDirection::UpstreamToDownstream,
             frame.clone(),
-            &mut ctx,
+            &mut (),
         ) {
             WebsocketMessageAction::Forward(updated) => {
                 assert_eq!(updated.payload, Bytes::from_static(b"HELLO"));
