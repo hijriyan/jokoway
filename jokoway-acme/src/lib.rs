@@ -25,7 +25,7 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use x509_parser::pem::Pem;
 
-// --- Config Models (Moved from jokoway/src/config/models.rs) ---
+use jokoway_core::config::{ConfigBuilder, JokowayConfig};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub enum AcmeChallengeType {
@@ -43,6 +43,18 @@ pub struct AcmeSettings {
     pub storage: String,
     #[serde(default)]
     pub challenge: AcmeChallengeType,
+}
+
+pub trait AcmeConfigExt {
+    fn acme(&self) -> Option<AcmeSettings>;
+}
+
+impl AcmeConfigExt for JokowayConfig {
+    fn acme(&self) -> Option<AcmeSettings> {
+        self.extra
+            .get("acme")
+            .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+    }
 }
 
 // --- Internal Types ---
@@ -714,6 +726,118 @@ impl AcmeRenewalService {
                     );
                 }
             }
+        }
+    }
+}
+
+pub trait AcmeConfigBuilderExt {
+    fn with_acme(self, acme: AcmeSettings) -> Self;
+}
+
+impl AcmeConfigBuilderExt for ConfigBuilder {
+    fn with_acme(self, acme: AcmeSettings) -> Self {
+        self.configure(|cfg, _| {
+            let val = serde_yaml::to_value(acme).expect("Failed to serialize AcmeSettings");
+            cfg.extra.insert("acme".to_string(), val);
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jokoway_core::config::{ConfigBuilder, JokowayConfig};
+
+    #[test]
+    fn test_acme_settings_serde() {
+        let settings = AcmeSettings {
+            ca_server: "https://example.com/acme".to_string(),
+            email: "admin@example.com".to_string(),
+            storage: "/tmp/acme".to_string(),
+            challenge: AcmeChallengeType::TlsAlpn01,
+        };
+
+        let yaml = serde_yaml::to_string(&settings).unwrap();
+        let deserialized: AcmeSettings = serde_yaml::from_str(&yaml).unwrap();
+
+        assert_eq!(deserialized.ca_server, settings.ca_server);
+        assert_eq!(deserialized.email, settings.email);
+        assert_eq!(deserialized.storage, settings.storage);
+        assert!(matches!(
+            deserialized.challenge,
+            AcmeChallengeType::TlsAlpn01
+        ));
+    }
+
+    #[test]
+    fn test_acme_config_ext() {
+        let mut config = JokowayConfig::default();
+        assert!(config.acme().is_none());
+
+        let settings = AcmeSettings {
+            ca_server: "https://example.com".to_string(),
+            email: "test@example.com".to_string(),
+            storage: "storage.json".to_string(),
+            challenge: AcmeChallengeType::Http01,
+        };
+
+        let val = serde_yaml::to_value(&settings).unwrap();
+        config.extra.insert("acme".to_string(), val);
+
+        let loaded = config.acme().expect("Should return settings");
+        assert_eq!(loaded.email, "test@example.com");
+        assert!(matches!(loaded.challenge, AcmeChallengeType::Http01));
+    }
+
+    #[test]
+    fn test_acme_config_builder_ext() {
+        let settings = AcmeSettings {
+            ca_server: "https://example.com".to_string(),
+            email: "builder@example.com".to_string(),
+            storage: "builder.json".to_string(),
+            challenge: AcmeChallengeType::TlsAlpn01,
+        };
+
+        let builder = ConfigBuilder::new().with_acme(settings);
+        let (config, _server_conf) = builder.build();
+
+        let loaded = config.acme().expect("Should have acme settings");
+        assert_eq!(loaded.email, "builder@example.com");
+        assert!(matches!(loaded.challenge, AcmeChallengeType::TlsAlpn01));
+    }
+
+    #[test]
+    fn test_acme_manager_cache() {
+        let settings = AcmeSettings {
+            ca_server: "server".to_string(),
+            email: "email".to_string(),
+            storage: "/tmp/test_acme_storage.json".to_string(),
+            challenge: AcmeChallengeType::Http01,
+        };
+
+        // Ensure clean state
+        if Path::new(&settings.storage).exists() {
+            fs::remove_file(&settings.storage).unwrap();
+        }
+
+        let manager = AcmeManager::new(&settings);
+
+        // Test manual add to cache
+        let domain = "example.com".to_string();
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert_params = rcgen::CertificateParams::new(vec![domain.clone()]).unwrap();
+        let cert = cert_params.self_signed(&key).unwrap();
+
+        manager
+            .add_to_cert_store(domain.clone(), &cert.pem(), &key.serialize_pem())
+            .expect("Failed to add to cache");
+
+        let cached = manager.get_certificate_cached(&domain, false);
+        assert!(cached.is_some());
+
+        // Clean up
+        if Path::new(&settings.storage).exists() {
+            fs::remove_file(&settings.storage).unwrap();
         }
     }
 }

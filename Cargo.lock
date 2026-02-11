@@ -1659,7 +1659,6 @@ dependencies = [
  "rcgen 0.14.7",
  "reqwest",
  "serde",
- "serde_yaml",
  "tokio",
  "tokio-openssl",
  "tokio-tungstenite",
@@ -1673,7 +1672,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-acme"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1688,6 +1687,7 @@ dependencies = [
  "rcgen 0.13.2",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
  "x509-parser 0.16.0",
 ]
@@ -1708,13 +1708,16 @@ dependencies = [
 
 [[package]]
 name = "jokoway-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "arc-swap",
  "async-trait",
  "bytes",
  "flate2",
  "pingora",
+ "serde",
+ "serde_yaml",
+ "utoipa",
 ]
 
 [[package]]

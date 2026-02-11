@@ -3,6 +3,7 @@
 //! This crate provides the fundamental traits that extension developers
 //! need to implement to create middlewares and extensions for Jokoway.
 
+pub mod config;
 pub mod error;
 pub mod websocket;
 

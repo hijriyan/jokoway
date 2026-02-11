@@ -6,7 +6,7 @@ use crate::prelude::*;
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
 #[cfg(feature = "acme-extension")]
-use jokoway_acme::AcmeExtension;
+use jokoway_acme::{AcmeConfigExt, AcmeExtension};
 use jokoway_core::AppCtx;
 use pingora::server::Server;
 use std::sync::Arc;
@@ -39,8 +39,8 @@ impl App {
         // Register ACME extension if configured
         // Must be added before HttpsExtension so HttpsExtension can find AcmeManager in AppCtx
         #[cfg(feature = "acme-extension")]
-        if let Some(acme_settings) = &app.config.acme {
-            let acme_ext = AcmeExtension::new(acme_settings);
+        if let Some(acme_settings) = app.config.acme() {
+            let acme_ext = AcmeExtension::new(&acme_settings);
             app.add_extension(acme_ext);
         }
 

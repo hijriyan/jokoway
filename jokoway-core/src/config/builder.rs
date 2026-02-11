@@ -1,6 +1,4 @@
-use super::models::{
-    AcmeSettings, JokowayConfig, RootConfig, ServerConf, Service, SslSettings, Upstream,
-};
+use super::models::{JokowayConfig, RootConfig, ServerConf, Service, SslSettings, Upstream};
 use serde_yaml;
 use std::fs::File;
 use std::io::BufReader;
@@ -63,11 +61,6 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn with_acme(mut self, acme: AcmeSettings) -> Self {
-        self.config.acme = Some(acme);
-        self
-    }
-
     pub fn add_upstream(mut self, upstream: Upstream) -> Self {
         self.config.upstreams.push(upstream);
         self
@@ -84,7 +77,7 @@ impl ConfigBuilder {
     ///
     /// Example:
     /// ```rust
-    /// use jokoway::config::ConfigBuilder;
+    /// use jokoway_core::config::ConfigBuilder;
     ///
     /// let builder = ConfigBuilder::new();
     /// builder.configure(|cfg, _server_conf| {
@@ -105,21 +98,3 @@ impl ConfigBuilder {
         (self.config, self.server_conf)
     }
 }
-
-// Extensibility Example:
-// To add a `with_grpc` method, the user (or another module) can define an Extension Trait.
-//
-// pub trait GrpcBuilderExt {
-//     fn with_grpc(self, settings: GrpcSettings) -> Self;
-// }
-//
-// impl GrpcBuilderExt for ConfigBuilder {
-//     fn with_grpc(self, settings: GrpcSettings) -> Self {
-//         self.configure(|cfg| {
-//             // Assuming we store grpc settings in the `extra` map or a specific field if we added one.
-//             // Since JokowayConfig has an `extra` field for dynamic config:
-//             let val = serde_yaml::to_value(settings).unwrap();
-//             cfg.extra.insert("grpc".to_string(), val);
-//         })
-//     }
-// }

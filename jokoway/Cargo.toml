@@ -9,7 +9,7 @@ readme = "../README.md"
 repository = "https://github.com/hijriyan/jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.1" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.2" }
 jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.2" }
 jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
 jokoway-transformer = { path = "../jokoway-transformer", version = "0.1.0-alpha.1" }
@@ -17,7 +17,6 @@ pingora = { version = "0.7.0", features = ["lb", "proxy", "openssl"] }
 async-trait = "0.1"
 bytes = "1"
 serde = { version = "1", features = ["derive", "rc"] }
-serde_yaml = "0.9"
 http = "1.4.0"
 arc-swap = "1.8.0"
 tokio = { version = "1", features = ["full"] }
@@ -32,7 +31,7 @@ flate2 = "1.0"
 hickory-resolver = { version = "0.24", features = ["tokio", "tokio-runtime"] }
 
 # optional dependencies
-jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.1", optional = true }
+jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.2", optional = true }
 axum = { version = "0.8", optional = true }
 tower_governor = { version = "0.8", optional = true }
 base64 = { version = "0.22", optional = true }
@@ -54,8 +53,9 @@ api-extension = [
     "dep:base64",
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
+    "jokoway-core/api-extension",
 ]
-acme-extension = ["dep:jokoway-acme"]
+acme-extension = ["dep:jokoway-acme", "jokoway-core/acme-extension"]
 compress-zstd = ["jokoway-compress/zstd"]
 compress-brotli = ["jokoway-compress/brotli"]
 

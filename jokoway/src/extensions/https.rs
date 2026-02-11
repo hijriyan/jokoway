@@ -7,7 +7,7 @@ use crate::server::router::{HTTPS_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
 #[cfg(feature = "acme-extension")]
-use jokoway_acme::AcmeManager;
+use jokoway_acme::{AcmeConfigExt, AcmeManager};
 use openssl::pkey::PKey;
 use openssl::ssl::{NameType, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
 use openssl::x509::X509;
@@ -189,8 +189,7 @@ impl JokowayExtension for HttpsExtension {
             #[cfg(feature = "acme-extension")]
             let use_acme_tls_alpn = acme_manager.is_some()
                 && config
-                    .acme
-                    .as_ref()
+                    .acme()
                     .map(|acme| {
                         matches!(acme.challenge, jokoway_acme::AcmeChallengeType::TlsAlpn01)
                     })
@@ -376,86 +375,5 @@ impl JokowayExtension for HttpsExtension {
             );
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::models::{AcmeChallengeType, AcmeSettings, JokowayConfig};
-
-    #[test]
-    #[cfg(feature = "acme-extension")]
-    fn test_use_acme_tls_alpn_logic() {
-        let mut config = JokowayConfig::default();
-
-        // Case 1: No acme manager, no acme config
-        let acme_manager: Option<Arc<AcmeManager>> = None;
-        let use_acme_tls_alpn = acme_manager.is_some()
-            && config
-                .acme
-                .as_ref()
-                .map(|acme| matches!(acme.challenge, AcmeChallengeType::TlsAlpn01))
-                .unwrap_or(false);
-        assert!(!use_acme_tls_alpn);
-
-        // Case 2: Acme config present but not TlsAlpn01
-        config.acme = Some(AcmeSettings {
-            challenge: AcmeChallengeType::Http01,
-            ..Default::default()
-        });
-
-        // We need a dummy AcmeSettings for AcmeManager
-        let settings = AcmeSettings {
-            storage: "/tmp/jokoway_test_storage.json".to_string(),
-            challenge: AcmeChallengeType::Http01,
-            ..Default::default()
-        };
-        let acme_manager = Some(Arc::new(AcmeManager::new(&settings)));
-        let use_acme_tls_alpn = acme_manager.is_some()
-            && config
-                .acme
-                .as_ref()
-                .map(|acme| matches!(acme.challenge, AcmeChallengeType::TlsAlpn01))
-                .unwrap_or(false);
-        assert!(!use_acme_tls_alpn);
-
-        // Case 3: Acme config present and TlsAlpn01
-        config.acme = Some(AcmeSettings {
-            challenge: AcmeChallengeType::TlsAlpn01,
-            ..Default::default()
-        });
-        let use_acme_tls_alpn = acme_manager.is_some()
-            && config
-                .acme
-                .as_ref()
-                .map(|acme| matches!(acme.challenge, AcmeChallengeType::TlsAlpn01))
-                .unwrap_or(false);
-        assert!(use_acme_tls_alpn);
-    }
-
-    #[test]
-    fn test_alpn_selection_logic() {
-        // Mock the logic inside the callback
-        let client_protos_with_acme = b"\x0aacme-tls/1\x02h2\x08http/1.1";
-        let client_protos_without_acme = b"\x02h2\x08http/1.1";
-
-        // Logic check for acme-tls/1
-        // client_protos.windows(11).any(|w| w[0] == 0x0a && &w[1..] == b"acme-tls/1")
-        let has_acme = |protos: &[u8]| {
-            protos
-                .windows(11)
-                .any(|w| w[0] == 0x0a && &w[1..] == b"acme-tls/1")
-        };
-
-        assert!(has_acme(client_protos_with_acme));
-        assert!(!has_acme(client_protos_without_acme));
-
-        // Logic check for h2
-        // client_protos.windows(2).any(|w| w == b"h2")
-        let has_h2 = |protos: &[u8]| protos.windows(2).any(|w| w == b"h2");
-
-        assert!(has_h2(client_protos_with_acme));
-        assert!(has_h2(client_protos_without_acme));
     }
 }

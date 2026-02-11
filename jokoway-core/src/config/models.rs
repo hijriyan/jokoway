@@ -2,6 +2,7 @@ pub use pingora::server::configuration::ServerConf;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+
 #[cfg(feature = "api-extension")]
 use utoipa::ToSchema;
 
@@ -11,17 +12,12 @@ pub struct RootConfig {
     pub pingora: Option<ServerConf>,
 }
 
-#[cfg(feature = "acme-extension")]
-pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};
-
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct JokowayConfig {
     pub http_listen: String,
     pub https_listen: Option<String>,
     pub api: Option<ApiSettings>,
     pub ssl: Option<SslSettings>,
-    #[cfg(feature = "acme-extension")]
-    pub acme: Option<AcmeSettings>,
 
     #[serde(default)]
     pub upstreams: Vec<Upstream>,
