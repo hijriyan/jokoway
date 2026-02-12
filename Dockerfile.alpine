@@ -21,6 +21,9 @@ FROM alpine:latest
 # Alpine is small but has a package manager (apk) and shell (sh)
 RUN apk add --no-cache ca-certificates
 
+# Create a non-root user
+RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
+
 LABEL org.opencontainers.image.source=https://github.com/hijriyan/jokoway
 LABEL org.opencontainers.image.authors="Aprila Hijriyan"
 LABEL org.opencontainers.image.title="Jokoway"
@@ -29,8 +32,11 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.url="https://github.com/hijriyan/jokoway"
 LABEL org.opencontainers.image.version="0.1.0-alpha.3"
 
-# Copy the binary
-COPY --from=builder /app/target/release/jokoway /
+# Copy the binary and set ownership
+COPY --from=builder --chown=nonroot:nonroot /app/target/release/jokoway /
+
+# Switch to non-root user
+USER nonroot
 
 # Set the entrypoint
 ENTRYPOINT ["/jokoway"]

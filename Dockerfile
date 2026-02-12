@@ -34,7 +34,10 @@ LABEL org.opencontainers.image.url="https://github.com/hijriyan/jokoway"
 LABEL org.opencontainers.image.version="0.1.0-alpha.3"
 
 # Copy the statically linked binary from builder
-COPY --from=builder /app/target/release/jokoway /
+COPY --from=builder --chown=nonroot:nonroot /app/target/release/jokoway /
+
+# Run as nonroot user
+USER nonroot
 
 # Set the entrypoint
 ENTRYPOINT ["/jokoway"]
