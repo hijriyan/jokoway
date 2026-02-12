@@ -21,51 +21,97 @@ Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simp
 
 ## 🌟 Key Features
 
-* **Expressive Routing**: Traefik-style routing rules.
-* **DB-less Declarative Config**: Manage your configuration without a database.
-* **Highly Customizable**: Extend Jokoway's functionality with extensions.
-* **Lets Encrypt**: Automatically issue and renew SSL certificates. (Supports HTTP-01 and TLS-ALPN-01 challenges)
+* **🚀 High Performance**: Built on Cloudflare's **Pingora** framework, providing extreme speed, reliability, and security in Rust.
+* **🚦 Expressive Routing Rules**: Traefik-style matching (Host, Path, Method, Headers, Queries) with full Regex support and priority control.
+* **📄 DB-less Declarative Configuration**: Manage your entire infrastructure via a simple, version-controllable YAML file.
+* **🔄 Request & Response Transformation**: Modify headers, paths, query parameters, and methods on the fly for both requests and responses.
+* **🔐 Let's Encrypt Support**: Built-in Let's Encrypt support with automated issuance and renewal (HTTP-01 and TLS-ALPN-01).
+* **⚖️ Advanced Load Balancing**: Support for backend clusters with weighted round-robin, active health checks (HTTP/TCP), and connection pooling.
+* **🗜️ HTTP Compression**: built-in Gzip, Brotli, and Zstandard compression.
+* **🌐 WebSocket Transformations**: Allow you to modify websocket message via Websocket Middleware.
+* **📊 Management API**: Allow you to manage upstreams and services via HTTP API.
+* **🔌 Highly Extensible**: Extend core functionality with a clean Rust-based middleware and extension system.
 
 ## 🔧 Installation
 
-### Using `cargo install`
+Jokoway can be installed as a binary via Cargo, run as a container with Docker, or built from the source.
+
+### 📦 Using Cargo (Recommended for Rust Users)
+
+Install the latest version of Jokoway directly from [crates.io](https://crates.io/crates/jokoway):
 
 ```sh
 cargo install jokoway
 ```
 
-### Using Docker
+### 🐳 Using Docker
 
-**Prerequisites:**
-- docker
+Pull the official image from GitHub Container Registry:
 
 ```sh
 docker pull ghcr.io/hijriyan/jokoway:latest
 ```
 
-### From Source
+### 🛠️ Building From Source
 
 **Prerequisites:**
-- rust
-- cargo
+- [Rust & Cargo](https://rustup.rs/) (Stable)
+- `cmake` and `perl` (Required by Pingora dependencies)
 
 ```sh
+# Clone the repository
 git clone --depth 1 https://github.com/hijriyan/jokoway.git
 cd jokoway
+
+# Build in release mode
 cargo build --release
-# The binary will be available at target/release/jokoway
+
+# The binary will be available at:
+# ./target/release/jokoway
 ```
 
 ## 🔨 Usage
 
-### Using `cargo install`
+### 🚀 Quick Start
 
-```sh
-jokoway -c config/jokoway.yml
+1. **Create a minimal configuration** (`config.yml`):
+```yaml
+jokoway:
+  http_listen: "0.0.0.0:8080"
+
+upstreams:
+  - name: my_backend
+    servers:
+      - host: "127.0.0.1:3000"
+
+services:
+  - name: my_service
+    host: my_backend
+    routes:
+      - rule: PathPrefix(`/`)
 ```
 
-### Using Docker
+2. **Run Jokoway**:
+```sh
+# Enable logging to see what's happening
+export RUST_LOG=info
+jokoway -c config.yml
+```
 
+3. **Verify**:
+```sh
+curl http://localhost:8080/
+```
+
+### 📖 Running with Different Methods
+
+#### Using the installed binary
+```sh
+jokoway -c path/to/config.yml
+```
+
+#### Using Docker
+Mount your local configuration directory to the container:
 ```sh
 docker run -d \
     -p 2014:2014 \
@@ -73,14 +119,15 @@ docker run -d \
     --name jokoway \
     -v $(pwd)/config:/etc/jokoway/config \
     ghcr.io/hijriyan/jokoway:latest \
-    -c /etc/jokoway/config/httpbin.yml
+    -c /etc/jokoway/config/my_config.yml
 ```
 
-### From Source
-
+#### Test Configuration
+Validate your configuration without starting the server:
 ```sh
-./target/release/jokoway -c config/jokoway.yml
+jokoway -c config.yml -t
 ```
+
 
 ## 📝 Configuration
 
