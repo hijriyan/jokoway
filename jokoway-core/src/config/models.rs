@@ -60,6 +60,8 @@ pub struct DnsSettings {
     pub cache_size: Option<usize>,
     #[serde(default = "default_true")]
     pub use_hosts_file: bool,
+    #[serde(default = "default_true")]
+    pub system_conf: bool,
 }
 
 fn default_true() -> bool {

@@ -28,7 +28,11 @@ dashmap = "6.1.0"
 x509-parser = "0.18.0"
 openssl = "0.10.75"
 flate2 = "1.0"
-hickory-resolver = { version = "0.24", features = ["tokio", "tokio-runtime"] }
+hickory-resolver = { version = "0.24", features = [
+    "tokio",
+    "tokio-runtime",
+    "system-config",
+] }
 
 # optional dependencies
 jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.2", optional = true }

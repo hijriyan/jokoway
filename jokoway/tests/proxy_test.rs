@@ -686,3 +686,51 @@ async fn test_health_check() {
 
     println!("\n✓ Health check test passed!");
 }
+
+#[tokio::test]
+async fn test_proxy_404_no_hang() {
+    let _ = env_logger::try_init();
+
+    // 1. Configure Jokoway (no upstreams needed for 404 test)
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let config = JokowayConfig {
+        http_listen: format!("127.0.0.1:{}", port),
+        ..Default::default()
+    };
+
+    // 2. Start App
+    let opt = Opt::default();
+    let app = App::new(config, None, opt, vec![]);
+
+    std::thread::spawn(move || {
+        if let Err(e) = app.run() {
+            eprintln!("App failed: {:?}", e);
+        }
+    });
+
+    // 3. Test 404 Response
+    let url = format!("http://127.0.0.1:{}/not-found", port);
+    let client = Client::builder()
+        .timeout(Duration::from_secs(2)) // Short timeout to fail fast if it hangs
+        .build()
+        .unwrap();
+
+    // Retry loop to allow server startup
+    let mut success = false;
+    for _ in 0..50 {
+        if let Ok(resp) = client.get(&url).send().await {
+            assert_eq!(resp.status(), 404);
+            // Verify Content-Length header is present
+            assert!(resp.headers().contains_key("content-length"));
+            assert_eq!(resp.headers()["content-length"], "0");
+            success = true;
+            break;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    assert!(success, "Failed to get 404 response or connection hung");
+}

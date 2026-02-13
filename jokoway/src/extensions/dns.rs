@@ -5,6 +5,7 @@ use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::config::{
     LookupIpStrategy, NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
+use hickory_resolver::system_conf;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -32,9 +33,28 @@ impl DnsResolveImpl for HickoryDnsResolver {
 impl HickoryDnsResolver {
     fn new(config: &JokowayConfig) -> Self {
         let dns_settings = config.dns.as_ref();
-        let mut opts = ResolverOpts::default();
-        let resolver_config = if let Some(dns) = dns_settings {
+        let (resolver_config, opts) = if let Some(dns) = dns_settings {
             let mut conf = ResolverConfig::new();
+            let mut opts = ResolverOpts::default();
+
+            // If system_conf is true, start with system resolver and merge user config
+            if dns.system_conf {
+                match system_conf::read_system_conf() {
+                    Ok((sys_conf, sys_opts)) => {
+                        conf = sys_conf;
+                        opts = sys_opts;
+                        log::debug!("Loaded system DNS configuration as base");
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to read system DNS config: {}, starting with empty config",
+                            e
+                        );
+                    }
+                }
+            }
+
+            // Add user-specified nameservers (merges with system config if system_conf=true)
             if let Some(nameservers) = &dns.nameservers {
                 for ns in nameservers {
                     let socket = if let Ok(socket) = ns.parse::<SocketAddr>() {
@@ -48,11 +68,10 @@ impl HickoryDnsResolver {
                     conf.add_name_server(NameServerConfig::new(socket, Protocol::Udp));
                     conf.add_name_server(NameServerConfig::new(socket, Protocol::Tcp));
                 }
-            } else {
-                // Fallback to Google if dns settings present but empty nameservers (though usually implies just use defaults, but we'll stick to google for consistency with previous impl)
-                conf = ResolverConfig::google();
+                log::debug!("Added {} user-specified nameservers", nameservers.len());
             }
 
+            // Override system opts with user-specified values
             if let Some(timeout) = dns.timeout {
                 opts.timeout = Duration::from_secs(timeout);
             }
@@ -79,10 +98,24 @@ impl HickoryDnsResolver {
             }
             opts.use_hosts_file = dns.use_hosts_file;
 
-            conf
+            (conf, opts)
         } else {
-            // Default config (Google DNS)
-            ResolverConfig::google()
+            // Default: Use system resolver (reads /etc/resolv.conf)
+            // In Docker containers, this automatically uses Docker's embedded DNS at 127.0.0.11
+            // which can resolve service names like "httpbin" to container IPs
+            match system_conf::read_system_conf() {
+                Ok((conf, opts)) => {
+                    log::info!("Using system DNS configuration");
+                    (conf, opts)
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to read system DNS config: {}, falling back to Google DNS",
+                        e
+                    );
+                    (ResolverConfig::google(), ResolverOpts::default())
+                }
+            }
         };
 
         let resolver = TokioAsyncResolver::tokio(resolver_config, opts);
@@ -168,6 +201,7 @@ mod tests {
                 strategy: Some("ipv6_only".to_string()),
                 cache_size: Some(100),
                 use_hosts_file: false,
+                system_conf: false,
             }),
             ..Default::default()
         };
@@ -185,6 +219,7 @@ mod tests {
                 strategy: Some("invalid_strategy".to_string()),
                 cache_size: None,
                 use_hosts_file: true,
+                system_conf: true,
             }),
             ..Default::default()
         };

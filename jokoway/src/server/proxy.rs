@@ -327,6 +327,7 @@ impl ProxyHttp for JokowayProxy {
 
         let mut header = ResponseHeader::build(404, None).unwrap();
         header.insert_header("Content-Type", "text/plain").ok();
+        header.insert_header("Content-Length", "0").ok();
         session
             .write_response_header(Box::new(header), true)
             .await?;
