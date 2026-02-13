@@ -1,0 +1,22 @@
+name: jokoway-httpbin
+
+services:
+  httpbin:
+    image: ghcr.io/mccutchen/go-httpbin:2.20
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  jokoway:
+    image: ghcr.io/hijriyan/jokoway:latest
+    ports:
+      - "2014:2014"
+      - "2024:2024"
+    volumes:
+      - ./jokoway.yml:/etc/jokoway/jokoway.yml
+      - letsencrypt:/etc/letsencrypt
+    environment:
+      - RUST_LOG=debug
+    command: "-c /etc/jokoway/jokoway.yml"
+
+volumes:
+  letsencrypt:
