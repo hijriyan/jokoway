@@ -79,16 +79,16 @@ cargo build --release
 jokoway:
   http_listen: "0.0.0.0:8080"
 
-upstreams:
-  - name: my_backend
-    servers:
-      - host: "127.0.0.1:3000"
+  upstreams:
+    - name: my_backend
+      servers:
+        - host: "127.0.0.1:3000"
 
-services:
-  - name: my_service
-    host: my_backend
-    routes:
-      - rule: PathPrefix(`/`)
+  services:
+    - name: my_service
+      host: my_backend
+      routes:
+        - rule: PathPrefix(`/`)
 ```
 
 2. **Run Jokoway**:
