@@ -11,7 +11,7 @@ mod tests {
 
     #[test]
     fn test_load_from_file() {
-        let path = "../config/jokoway.yml";
+        let path = "../jokoway.yml";
         let builder = ConfigBuilder::new().from_file(path);
         assert!(builder.is_ok());
     }
