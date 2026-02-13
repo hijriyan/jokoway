@@ -32,6 +32,7 @@ pub struct JokowayConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ApiSettings {
     pub listen: Option<String>,
     pub basic_auth: Option<BasicAuth>,
@@ -40,18 +41,21 @@ pub struct ApiSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct BasicAuth {
     pub username: String,
     pub password: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimit {
     pub requests_per_second: u32,
     pub burst: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct DnsSettings {
     pub nameservers: Option<Vec<String>>,
     pub timeout: Option<u64>,
@@ -70,6 +74,7 @@ fn default_true() -> bool {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct PeerOptions {
     pub read_timeout: Option<u64>,
     pub idle_timeout: Option<u64>,
@@ -86,6 +91,7 @@ pub struct PeerOptions {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SslSettings {
     pub cacert: Option<String>,
     pub server_cert: Option<String>,
@@ -97,6 +103,7 @@ pub struct SslSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CipherSuites {
     pub tls12: Option<Vec<String>>,
     pub tls13: Option<Vec<String>>,
@@ -115,6 +122,7 @@ fn default_openapi_root_path() -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct OpenApiSettings {
     #[serde(default = "default_openapi_title")]
     pub title: String,
@@ -136,6 +144,7 @@ impl Default for OpenApiSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct Upstream {
     pub name: String,
     pub peer_options: Option<PeerOptions>,
@@ -147,6 +156,7 @@ pub struct Upstream {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct UpstreamServer {
     pub host: String,
     pub weight: Option<u32>,
@@ -169,6 +179,7 @@ pub enum ServiceProtocol {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct Service {
     pub name: String,
     pub host: String,
@@ -179,6 +190,7 @@ pub struct Service {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct Route {
     pub name: String,
     #[serde(default)]
@@ -187,6 +199,7 @@ pub struct Route {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct Rule {
     pub rule: String,
     pub priority: Option<i32>,
@@ -223,6 +236,7 @@ pub enum HealthCheckType {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct HealthCheckConfig {
     #[serde(rename = "type")]
     pub check_type: HealthCheckType,
