@@ -35,7 +35,7 @@ hickory-resolver = { version = "0.24", features = [
 ] }
 
 # optional dependencies
-jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.2", optional = true }
+jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.3", optional = true }
 axum = { version = "0.8", optional = true }
 tower_governor = { version = "0.8", optional = true }
 base64 = { version = "0.22", optional = true }
