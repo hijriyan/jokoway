@@ -174,4 +174,22 @@ async fn test_compression() {
         let bytes = resp.bytes().await.unwrap();
         println!("Zstd response: {} bytes", bytes.len());
     }
+    let resp = client
+        .get(&url)
+        // .header("Accept-Encoding", "gzip")
+        .send()
+        .await
+        .expect("Failed to send 4.5 request");
+    assert_eq!(resp.status(), 200);
+    let encoding = resp
+        .headers()
+        .get("content-encoding")
+        .map(|v| v.to_str().unwrap());
+    assert_eq!(
+        encoding, None,
+        "Should not use any compression when requested"
+    );
+
+    let bytes = resp.bytes().await.unwrap();
+    println!("Plain response: {} bytes", bytes.len());
 }

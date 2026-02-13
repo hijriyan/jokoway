@@ -1,12 +1,27 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use bytes::{BufMut, Bytes, BytesMut};
 use jokoway_core::{HttpMiddleware, JokowayExtension};
 use pingora::Error;
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use pingora::server::Server;
 use std::io::Write;
+
+/// Wrapper to use BytesMut as a std::io::Write implementation
+pub struct BytesMutWriter(pub BytesMut);
+
+impl Write for BytesMutWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.put_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 // Industry-standard compressible content types based on Cloudflare, NGINX, Apache standards
 const COMPRESSIBLE_TYPES: &[&str] = &[
@@ -164,7 +179,7 @@ impl CompressMiddleware {
         &self,
         compressor: &mut Compressor,
         chunk: &[u8],
-    ) -> std::io::Result<Option<Vec<u8>>> {
+    ) -> std::io::Result<Option<Bytes>> {
         match compressor.process_chunk(chunk) {
             Ok(data) => Ok(Some(data)),
             Err(e) => {
@@ -178,7 +193,7 @@ impl CompressMiddleware {
     fn safe_finish_compression(
         &self,
         compressor: Option<Compressor>,
-    ) -> std::io::Result<Option<Vec<u8>>> {
+    ) -> std::io::Result<Option<Bytes>> {
         match compressor {
             Some(comp) => match comp.finish() {
                 Ok(data) => Ok(Some(data)),
@@ -298,51 +313,57 @@ pub enum CompressionAlgo {
 }
 
 pub enum Compressor {
-    Gzip(flate2::write::GzEncoder<Vec<u8>>),
+    Gzip(flate2::write::GzEncoder<BytesMutWriter>),
     #[cfg(feature = "zstd")]
-    Zstd(zstd::stream::write::Encoder<'static, Vec<u8>>),
+    Zstd(zstd::stream::write::Encoder<'static, BytesMutWriter>),
     #[cfg(feature = "brotli")]
-    Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
+    Brotli(Box<brotli::CompressorWriter<BytesMutWriter>>),
 }
 
 impl Compressor {
-    pub fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<Vec<u8>> {
+    pub fn process_chunk(&mut self, chunk: &[u8]) -> std::io::Result<Bytes> {
         match self {
             Compressor::Gzip(encoder) => {
                 encoder.write_all(chunk)?;
                 encoder.flush()?;
                 let inner = encoder.get_mut();
-                Ok(std::mem::take(inner))
+                Ok(inner.0.split().freeze())
             }
             #[cfg(feature = "zstd")]
             Compressor::Zstd(encoder) => {
                 encoder.write_all(chunk)?;
                 encoder.flush()?;
                 let inner = encoder.get_mut();
-                Ok(std::mem::take(inner))
+                Ok(inner.0.split().freeze())
             }
             #[cfg(feature = "brotli")]
             Compressor::Brotli(encoder) => {
                 encoder.write_all(chunk)?;
                 encoder.flush()?;
                 let inner = encoder.get_mut();
-                Ok(std::mem::take(inner))
+                Ok(inner.0.split().freeze())
             }
         }
     }
 
-    pub fn finish(self) -> std::io::Result<Vec<u8>> {
+    pub fn finish(self) -> std::io::Result<Bytes> {
         match self {
-            Compressor::Gzip(encoder) => encoder.finish(),
+            Compressor::Gzip(encoder) => {
+                let inner = encoder.finish()?;
+                Ok(inner.0.freeze())
+            }
             #[cfg(feature = "zstd")]
             Compressor::Zstd(mut encoder) => {
                 encoder.flush()?;
-                encoder.finish()
+                let inner = encoder.finish()?;
+                Ok(inner.0.freeze())
             }
             #[cfg(feature = "brotli")]
             Compressor::Brotli(mut encoder) => {
                 encoder.flush()?;
-                Ok(encoder.into_inner())
+                // brotli encoder.into_inner() returns the writer
+                let inner = encoder.into_inner();
+                Ok(inner.0.freeze())
             }
         }
     }
@@ -631,7 +652,7 @@ impl HttpMiddleware for CompressMiddleware {
                         .unwrap_or(6)
                         .into();
                     Compressor::Gzip(flate2::write::GzEncoder::new(
-                        Vec::new(),
+                        BytesMutWriter(BytesMut::new()),
                         flate2::Compression::new(level),
                     ))
                 }
@@ -639,7 +660,8 @@ impl HttpMiddleware for CompressMiddleware {
                 CompressionAlgo::Zstd => {
                     // Use configurable zstd level
                     let level = ctx.config.zstd.as_ref().map(|z| z.level).unwrap_or(3);
-                    match zstd::stream::write::Encoder::new(Vec::new(), level) {
+                    match zstd::stream::write::Encoder::new(BytesMutWriter(BytesMut::new()), level)
+                    {
                         Ok(encoder) => Compressor::Zstd(encoder),
                         Err(e) => {
                             log::error!("Failed to create zstd encoder: {}", e);
@@ -661,7 +683,7 @@ impl HttpMiddleware for CompressMiddleware {
                         .unwrap_or((5, 22, 4096));
 
                     Compressor::Brotli(Box::new(brotli::CompressorWriter::new(
-                        Vec::new(),
+                        BytesMutWriter(BytesMut::new()),
                         buffer_size,
                         quality,
                         lgwin,
@@ -687,37 +709,36 @@ impl HttpMiddleware for CompressMiddleware {
         }
 
         let start = std::time::Instant::now();
-        let mut out_data = Vec::new();
+
+        // We might get data from processing the chunk AND/OR from finishing the stream.
+        // We handle them directly without a Vec allocation.
+        let mut chunk_data = None;
+        let mut finish_data = None;
 
         if let Some(compressor) = ctx.compressor.as_mut()
-            && let Some(chunk) = body {
-                ctx.current_size += chunk.len();
-                match self.safe_compress_chunk(compressor, chunk) {
-                    Ok(Some(data)) => {
-                        if !data.is_empty() {
-                            out_data.extend_from_slice(&data);
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        return Err(Error::because(
-                            pingora::ErrorType::InternalError,
-                            "compression failed",
-                            e,
-                        ));
-                    }
+            && let Some(chunk) = body
+        {
+            ctx.current_size += chunk.len();
+            match self.safe_compress_chunk(compressor, chunk) {
+                Ok(data) => {
+                    chunk_data = data;
+                }
+                Err(e) => {
+                    return Err(Error::because(
+                        pingora::ErrorType::InternalError,
+                        "compression failed",
+                        e,
+                    ));
                 }
             }
+        }
 
-        if end_of_stream
-            && let Some(compressor) = ctx.compressor.take() {
+        if end_of_stream {
+            if let Some(compressor) = ctx.compressor.take() {
                 match self.safe_finish_compression(Some(compressor)) {
-                    Ok(Some(data)) => {
-                        if !data.is_empty() {
-                            out_data.extend_from_slice(&data);
-                        }
+                    Ok(data) => {
+                        finish_data = data;
                     }
-                    Ok(None) => {}
                     Err(e) => {
                         return Err(Error::because(
                             pingora::ErrorType::InternalError,
@@ -727,16 +748,34 @@ impl HttpMiddleware for CompressMiddleware {
                     }
                 }
             }
+        }
 
-        if out_data.is_empty() {
-            if end_of_stream {
-                *body = None;
-            } else {
-                // Return an empty chunk instead of None to keep the stream alive
-                *body = Some(bytes::Bytes::new());
+        // Combine chunks if necessary
+        match (chunk_data, finish_data) {
+            (Some(c), Some(f)) if !c.is_empty() && !f.is_empty() => {
+                // Both chunk and finish data present, concatenate needed
+                let mut buf = BytesMut::with_capacity(c.len() + f.len());
+                buf.put(c);
+                buf.put(f);
+                *body = Some(buf.freeze());
             }
-        } else {
-            *body = Some(bytes::Bytes::from(out_data));
+            (Some(c), _) if !c.is_empty() => {
+                // Only chunk data is meaningful
+                *body = Some(c);
+            }
+            (_, Some(f)) if !f.is_empty() => {
+                // Only finish data is meaningful (e.g. empty chunk but finish flushed something)
+                *body = Some(f);
+            }
+            _ => {
+                // No meaningful data from either
+                if end_of_stream {
+                    *body = None;
+                } else {
+                    // Return an empty chunk instead of None to keep the stream alive if not end of stream
+                    *body = Some(bytes::Bytes::new());
+                }
+            }
         }
 
         Ok(Some(start.elapsed()))
@@ -933,7 +972,7 @@ mod tests {
     #[test]
     fn test_streaming_compression_gzip() {
         let mut compressor = Compressor::Gzip(flate2::write::GzEncoder::new(
-            Vec::new(),
+            BytesMutWriter(BytesMut::new()),
             flate2::Compression::default(),
         ));
 
@@ -978,7 +1017,7 @@ mod tests {
 
         // Test safe compression chunk
         let mut compressor = Compressor::Gzip(flate2::write::GzEncoder::new(
-            Vec::new(),
+            BytesMutWriter(BytesMut::new()),
             flate2::Compression::new(6),
         ));
 
@@ -996,7 +1035,7 @@ mod tests {
         let mw = CompressMiddleware::default();
 
         let compressor = Some(Compressor::Gzip(flate2::write::GzEncoder::new(
-            Vec::new(),
+            BytesMutWriter(BytesMut::new()),
             flate2::Compression::new(6),
         )));
 
