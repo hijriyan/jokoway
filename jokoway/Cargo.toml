@@ -1,16 +1,16 @@
 [package]
 name = "jokoway"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 edition = "2024"
 license = "MIT"
-description = "Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs. Inspired by Traefik’s expressive routing rules and Kong’s DB-less declarative configuration model."
+description = "Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs."
 authors = ["Hijriyan <april@kuli.dev>"]
 readme = "../README.md"
 repository = "https://github.com/hijriyan/jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.2" }
-jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.2" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.3" }
+jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.3" }
 jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
 jokoway-transformer = { path = "../jokoway-transformer", version = "0.1.0-alpha.1" }
 pingora = { version = "0.7.0", features = ["lb", "proxy", "openssl"] }

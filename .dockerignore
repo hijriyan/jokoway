@@ -6,4 +6,4 @@ debug
 *.swp
 *.ds_store
 images
-config
+examples

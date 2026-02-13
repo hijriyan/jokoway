@@ -31,7 +31,7 @@ LABEL org.opencontainers.image.title="Jokoway"
 LABEL org.opencontainers.image.description="Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs."
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.url="https://github.com/hijriyan/jokoway"
-LABEL org.opencontainers.image.version="0.1.0-alpha.3"
+LABEL org.opencontainers.image.version="0.1.0-alpha.4"
 
 # Copy the statically linked binary from builder
 COPY --from=builder --chown=nonroot:nonroot /app/target/release/jokoway /
