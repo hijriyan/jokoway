@@ -733,8 +733,8 @@ impl HttpMiddleware for CompressMiddleware {
             }
         }
 
-        if end_of_stream {
-            if let Some(compressor) = ctx.compressor.take() {
+        if end_of_stream
+            && let Some(compressor) = ctx.compressor.take() {
                 match self.safe_finish_compression(Some(compressor)) {
                     Ok(data) => {
                         finish_data = data;
@@ -748,7 +748,6 @@ impl HttpMiddleware for CompressMiddleware {
                     }
                 }
             }
-        }
 
         // Combine chunks if necessary
         match (chunk_data, finish_data) {
