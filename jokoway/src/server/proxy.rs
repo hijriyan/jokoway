@@ -255,15 +255,26 @@ fn load_client_cert_key(
 impl ProxyHttp for JokowayProxy {
     type CTX = RouteContext;
     fn new_ctx(&self) -> Self::CTX {
-        let mut ctx = RouteContext::new();
-        for middleware in self.http_middlewares.iter() {
-            ctx.middleware_ctx.push(middleware.new_ctx_dyn());
+        RouteContext::new()
+    }
+
+    async fn early_request_filter(
+        &self,
+        session: &mut Session,
+        ctx: &mut Self::CTX,
+    ) -> Result<(), Box<Error>> {
+        let is_upgrade = session.is_upgrade_req();
+        if is_upgrade {
+            for ws_middleware in self.websocket_middlewares.iter() {
+                ctx.websocket_middleware_ctx
+                    .push(ws_middleware.new_ctx_dyn());
+            }
+        } else {
+            for middleware in self.http_middlewares.iter() {
+                ctx.middleware_ctx.push(middleware.new_ctx_dyn());
+            }
         }
-        for ws_middleware in self.websocket_middlewares.iter() {
-            ctx.websocket_middleware_ctx
-                .push(ws_middleware.new_ctx_dyn());
-        }
-        ctx
+        Ok(())
     }
 
     async fn request_filter(
@@ -314,9 +325,8 @@ impl ProxyHttp for JokowayProxy {
         if let Some(match_result) = match_result {
             log::debug!("Route matched: upstream={}", match_result.upstream_name);
 
-            if let Some(transformer) = &match_result.req_transformer {
-                transformer.transform_request(req_header);
-            }
+            // Store transformer in context to be applied later in upstream_request_filter
+            ctx.req_transformer = match_result.req_transformer;
 
             ctx.upstream_name = Some(match_result.upstream_name);
             ctx.response_transformer = match_result.res_transformer;
@@ -396,6 +406,10 @@ impl ProxyHttp for JokowayProxy {
             upstream_request.insert_header("Host", host).map_err(|e| {
                 Error::explain(pingora::ErrorType::InvalidHTTPHeader, e.to_string())
             })?;
+        }
+
+        if let Some(transformer) = &ctx.req_transformer {
+            transformer.transform_request(upstream_request);
         }
 
         Ok(())

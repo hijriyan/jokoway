@@ -95,15 +95,12 @@ impl JokowayExtension for HttpsExtension {
         })?;
 
         let router = Router::new(service_manager, upstream_manager.clone(), &HTTPS_PROTOCOLS);
-        // JokowayProxy::new returns only proxy
         let proxy = JokowayProxy::new(
             router,
             Arc::new(app_ctx.clone()),
             http_middlewares.clone(),
             websocket_middlewares.clone(),
         )?;
-
-        // Services are already added by App from UpstreamManager
 
         if let Some(ssl) = &config.ssl {
             let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate(SslMethod::tls()) {

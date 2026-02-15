@@ -468,3 +468,164 @@ fn test_remove_middleware() {
 
     let _server = app.build().unwrap();
 }
+
+// --- Elapsed Time Middleware ---
+
+struct ElapsedTimeMiddleware {
+    // Shared storage to verify the results in test
+    results: Arc<std::sync::Mutex<Vec<Duration>>>,
+}
+
+struct ElapsedTimeCtx {
+    start_time: Option<std::time::Instant>,
+}
+
+#[async_trait::async_trait]
+impl HttpMiddleware for ElapsedTimeMiddleware {
+    type CTX = ElapsedTimeCtx;
+
+    fn name(&self) -> &'static str {
+        "ElapsedTimeMiddleware"
+    }
+
+    fn new_ctx(&self) -> Self::CTX {
+        ElapsedTimeCtx { start_time: None }
+    }
+
+    async fn request_filter(
+        &self,
+        _session: &mut Session,
+        ctx: &mut Self::CTX,
+        _app_ctx: &AppCtx,
+    ) -> Result<bool, Box<pingora::Error>> {
+        ctx.start_time = Some(std::time::Instant::now());
+        Ok(false)
+    }
+
+    fn response_body_filter(
+        &self,
+        _session: &mut Session,
+        _body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<Option<Duration>, Box<pingora::Error>> {
+        if end_of_stream {
+            if let Some(start) = ctx.start_time {
+                let elapsed = start.elapsed();
+                self.results.lock().unwrap().push(elapsed);
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[tokio::test]
+async fn test_elapsed_time_middleware() {
+    let _ = env_logger::try_init();
+
+    // 1. Setup Mock
+    let mock_server = start_http_mock().await;
+    Mock::given(method("GET"))
+        .and(path("/elapsed"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("done"))
+        .mount(&mock_server)
+        .await;
+
+    // 2. Configure Jokoway
+    let ups_name = "mock-elapsed";
+    let mock_uri = mock_server.uri();
+    let mock_addr = mock_uri.trim_start_matches("http://");
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let config = JokowayConfig {
+        http_listen: format!("127.0.0.1:{}", port),
+        upstreams: vec![Upstream {
+            name: ups_name.to_string(),
+            servers: vec![UpstreamServer {
+                host: mock_addr.to_string(),
+                weight: Some(1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        services: vec![Arc::new(Service {
+            name: "elapsed-service".to_string(),
+            host: ups_name.to_string(),
+            protocols: vec![ServiceProtocol::Http],
+            routes: vec![Route {
+                name: "elapsed-route".to_string(),
+                rule: "PathPrefix(`/elapsed`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
+            }],
+        })],
+        ..Default::default()
+    };
+
+    // 3. Setup Middleware with shared state
+    let results = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let middleware = ElapsedTimeMiddleware {
+        results: results.clone(),
+    };
+
+    struct ElapsedExtension {
+        middleware: Arc<ElapsedTimeMiddleware>,
+    }
+
+    impl JokowayExtension for ElapsedExtension {
+        fn init(
+            &self,
+            _server: &mut pingora::server::Server,
+            _app_ctx: &mut AppCtx,
+            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            http_middlewares.push(self.middleware.clone());
+            Ok(())
+        }
+    }
+
+    let extension = ElapsedExtension {
+        middleware: Arc::new(middleware),
+    };
+
+    // 4. Start App
+    let app = App::new(config, None, Opt::default(), vec![Box::new(extension)]);
+
+    std::thread::spawn(move || {
+        if let Err(e) = app.run() {
+            eprintln!("App failed: {:?}", e);
+        }
+    });
+
+    // 5. Test Request
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:{}/elapsed", port);
+
+    let mut success = false;
+    for _ in 0..50 {
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status() == 200
+        {
+            success = true;
+            break;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    assert!(success, "Failed to reach proxy");
+
+    // 6. Verify Elapsed Time Recorded
+    // Give a little time for the response body filter to run and lock acquire
+    sleep(Duration::from_millis(100)).await;
+
+    let recorded = results.lock().unwrap();
+    assert_eq!(recorded.len(), 1, "Should have recorded 1 request duration");
+    println!("Recorded duration: {:?}", recorded[0]);
+    assert!(
+        recorded[0] > Duration::from_micros(1),
+        "Duration should be non-zero"
+    );
+}

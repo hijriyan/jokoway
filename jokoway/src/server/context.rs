@@ -1,4 +1,4 @@
-use jokoway_transformer::ResponseTransformer;
+use jokoway_transformer::{RequestTransformer, ResponseTransformer};
 
 use bytes::BytesMut;
 use flate2::Decompress;
@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub struct RouteContext {
     pub upstream_name: Option<Arc<str>>,
     pub response_transformer: Option<Arc<dyn ResponseTransformer>>,
+    pub req_transformer: Option<Arc<dyn RequestTransformer>>,
     pub is_upgrade: bool,
     pub ws_client_buf: BytesMut,
     pub ws_upstream_buf: BytesMut,
@@ -27,6 +28,7 @@ impl RouteContext {
         Self {
             upstream_name: None,
             response_transformer: None,
+            req_transformer: None,
             is_upgrade: false,
             // Pre-allocate reasonable buffer sizes for WebSocket frames
             ws_client_buf: BytesMut::with_capacity(4096),
