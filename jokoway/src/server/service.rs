@@ -173,13 +173,6 @@ impl ServiceManager {
         self.services.load()
     }
 
-    /// Reload services from new config
-    pub fn reload(&self, config: &JokowayConfig) {
-        let services = Self::compile_services(config);
-        self.services.store(Arc::new(services));
-        self.notify_callbacks();
-    }
-
     /// Register a callback to be notified when services change
     pub fn add_services_changed_callback<F>(&self, callback: F)
     where
