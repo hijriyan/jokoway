@@ -286,11 +286,10 @@ jokoway:
         - "https"
       routes:
         - name: "api-route"
-          rules:
-            - rule: "PathPrefix(`/api`)"
-              priority: 10
-              request_transformer: null
-              response_transformer: null
+          rule: "PathPrefix(`/api`)"
+          priority: 10
+          request_transformer: null
+          response_transformer: null
 
     - name: "websocket-service"
       host: "backend-api"
@@ -299,8 +298,7 @@ jokoway:
         - "wss"
       routes:
         - name: "chat-socket"
-          rules:
-            - rule: "PathPrefix(`/chat`)"
+          rule: "PathPrefix(`/chat`)"
 
 # --- Pingora Server Configuration (Underlying Engine) ---
 # See: https://docs.rs/pingora/latest/pingora/server/configuration/struct.ServerConf.html

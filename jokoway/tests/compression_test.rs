@@ -1,7 +1,8 @@
 use jokoway::config::{
     ConfigBuilder,
-    models::{Route, Rule, Service, ServiceProtocol, Upstream, UpstreamServer},
+    models::{Route, Service, ServiceProtocol, Upstream, UpstreamServer},
 };
+
 use jokoway::server::app::App;
 use jokoway_compress::{CompressionConfigBuilderExt, CompressionSettings, GzipSettings};
 use pingora::server::configuration::Opt;
@@ -58,11 +59,9 @@ async fn test_compression() {
             protocols: vec![ServiceProtocol::Http],
             routes: vec![Route {
                 name: "compress-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/compress`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/compress`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })
         .with_compression(CompressionSettings {

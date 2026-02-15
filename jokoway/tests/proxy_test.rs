@@ -1,7 +1,7 @@
 use common::{start_http_mock, start_mtls_mock, start_ws_mock};
 use futures_util::{SinkExt, StreamExt};
 use jokoway::config::models::{
-    JokowayConfig, PeerOptions, Route, Rule, Service, ServiceProtocol, Upstream, UpstreamServer,
+    JokowayConfig, PeerOptions, Route, Service, ServiceProtocol, Upstream, UpstreamServer,
 };
 use jokoway::server::app::App;
 use pingora::server::configuration::Opt;
@@ -55,11 +55,9 @@ async fn test_http_proxy() {
             protocols: vec![ServiceProtocol::Http],
             routes: vec![Route {
                 name: "test-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()
@@ -135,11 +133,9 @@ async fn test_ws_proxy() {
             protocols: vec![ServiceProtocol::Ws],
             routes: vec![Route {
                 name: "test-ws-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/ws`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/ws`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()
@@ -246,11 +242,9 @@ async fn test_https_proxy() {
             protocols: vec![ServiceProtocol::Https],
             routes: vec![Route {
                 name: "secure-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/secure`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/secure`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()
@@ -346,11 +340,9 @@ async fn test_mtls_upstream() {
             protocols: vec![ServiceProtocol::Http],
             routes: vec![Route {
                 name: "mtls-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/mtls`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/mtls`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()
@@ -488,11 +480,9 @@ async fn test_health_check() {
             protocols: vec![ServiceProtocol::Http],
             routes: vec![Route {
                 name: "test-health-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()

@@ -193,14 +193,6 @@ pub struct Service {
 #[serde(deny_unknown_fields)]
 pub struct Route {
     pub name: String,
-    #[serde(default)]
-    pub rules: Vec<Rule>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
-#[serde(deny_unknown_fields)]
-pub struct Rule {
     pub rule: String,
     pub priority: Option<i32>,
     pub request_transformer: Option<String>,

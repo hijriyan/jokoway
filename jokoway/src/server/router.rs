@@ -171,7 +171,7 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{JokowayConfig, Route, Rule, Service, ServiceProtocol};
+    use crate::config::models::{JokowayConfig, Route, Service, ServiceProtocol};
     use crate::extensions::dns::DnsResolver;
     use crate::server::context::AppCtx;
 
@@ -184,12 +184,10 @@ mod tests {
                     protocols: vec![ServiceProtocol::Http],
                     routes: vec![Route {
                         name: "http_route".to_string(),
-                        rules: vec![Rule {
-                            rule: "Host(`example.com`)".to_string(),
-                            priority: None,
-                            request_transformer: None,
-                            response_transformer: None,
-                        }],
+                        rule: "Host(`example.com`)".to_string(),
+                        priority: None,
+                        request_transformer: None,
+                        response_transformer: None,
                     }],
                 },
                 Service {
@@ -198,12 +196,10 @@ mod tests {
                     protocols: vec![ServiceProtocol::Https],
                     routes: vec![Route {
                         name: "https_route".to_string(),
-                        rules: vec![Rule {
-                            rule: "Host(`secure.example.com`)".to_string(),
-                            priority: None,
-                            request_transformer: None,
-                            response_transformer: None,
-                        }],
+                        rule: "Host(`secure.example.com`)".to_string(),
+                        priority: None,
+                        request_transformer: None,
+                        response_transformer: None,
                     }],
                 },
                 Service {
@@ -212,12 +208,10 @@ mod tests {
                     protocols: vec![ServiceProtocol::Http, ServiceProtocol::Https],
                     routes: vec![Route {
                         name: "dual_route".to_string(),
-                        rules: vec![Rule {
-                            rule: "Host(`dual.example.com`)".to_string(),
-                            priority: None,
-                            request_transformer: None,
-                            response_transformer: None,
-                        }],
+                        rule: "Host(`dual.example.com`)".to_string(),
+                        priority: None,
+                        request_transformer: None,
+                        response_transformer: None,
                     }],
                 },
                 Service {
@@ -226,12 +220,10 @@ mod tests {
                     protocols: vec![],
                     routes: vec![Route {
                         name: "default_route".to_string(),
-                        rules: vec![Rule {
-                            rule: "Host(`default.example.com`)".to_string(),
-                            priority: None,
-                            request_transformer: None,
-                            response_transformer: None,
-                        }],
+                        rule: "Host(`default.example.com`)".to_string(),
+                        priority: None,
+                        request_transformer: None,
+                        response_transformer: None,
                     }],
                 },
             ]
@@ -331,12 +323,10 @@ mod tests {
             protocols: vec![ServiceProtocol::Http],
             routes: vec![Route {
                 name: "new_route".to_string(),
-                rules: vec![Rule {
-                    rule: "Host(`new.example.com`)".to_string(),
-                    priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
-                }],
+                rule: "Host(`new.example.com`)".to_string(),
+                priority: None,
+                request_transformer: None,
+                response_transformer: None,
             }],
         };
 
@@ -371,12 +361,10 @@ mod tests {
                 protocols: vec![ServiceProtocol::Http],
                 routes: vec![Route {
                     name: "route_a".to_string(),
-                    rules: vec![Rule {
-                        rule: "Host(`a.com`)".to_string(),
-                        priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
-                    }],
+                    rule: "Host(`a.com`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
                 }],
             },
             Service {
@@ -385,12 +373,10 @@ mod tests {
                 protocols: vec![ServiceProtocol::Http],
                 routes: vec![Route {
                     name: "route_b".to_string(),
-                    rules: vec![Rule {
-                        rule: "Host(`b.com`)".to_string(),
-                        priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
-                    }],
+                    rule: "Host(`b.com`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
                 }],
             },
             Service {
@@ -399,12 +385,10 @@ mod tests {
                 protocols: vec![ServiceProtocol::Http],
                 routes: vec![Route {
                     name: "route_hybrid".to_string(),
-                    rules: vec![Rule {
-                        rule: "Host(`c.com`) || PathPrefix(`/c`)".to_string(),
-                        priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
-                    }],
+                    rule: "Host(`c.com`) || PathPrefix(`/c`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
                 }],
             },
             Service {
@@ -413,12 +397,10 @@ mod tests {
                 protocols: vec![ServiceProtocol::Http],
                 routes: vec![Route {
                     name: "route_wild".to_string(),
-                    rules: vec![Rule {
-                        rule: "PathPrefix(`/wild`)".to_string(),
-                        priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
-                    }],
+                    rule: "PathPrefix(`/wild`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
                 }],
             },
             Service {
@@ -427,14 +409,12 @@ mod tests {
                 protocols: vec![ServiceProtocol::Http],
                 routes: vec![Route {
                     name: "route_complex_no_wild".to_string(),
-                    rules: vec![Rule {
-                        // Host("c.com") || (Host("a.com") && PathPrefix("/c"))
-                        // Both branches have specific hosts, so entire rule is NOT wildcard.
-                        rule: "Host(`c.com`) || Host(`a.com`) && PathPrefix(`/c`)".to_string(),
-                        priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
-                    }],
+                    // Host("c.com") || (Host("a.com") && PathPrefix("/c"))
+                    // Both branches have specific hosts, so entire rule is NOT wildcard.
+                    rule: "Host(`c.com`) || Host(`a.com`) && PathPrefix(`/c`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
                 }],
             },
         ];

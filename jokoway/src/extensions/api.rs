@@ -155,8 +155,7 @@ impl ApiExtension {
             crate::config::models::HealthCheckType,
             crate::config::models::Service,
             crate::config::models::ServiceProtocol,
-            crate::config::models::Route,
-            crate::config::models::Rule
+            crate::config::models::Route
         )
     ),
     tags(

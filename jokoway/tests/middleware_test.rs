@@ -1,7 +1,8 @@
 use futures_util::{SinkExt, StreamExt};
 use jokoway::config::models::{
-    JokowayConfig, Route, Rule, Service, ServiceProtocol, Upstream, UpstreamServer,
+    JokowayConfig, Route, Service, ServiceProtocol, Upstream, UpstreamServer,
 };
+
 use jokoway::prelude::*;
 use jokoway::server::app::App;
 use jokoway::server::context::AppCtx;
@@ -140,11 +141,9 @@ async fn test_http_middleware() {
             protocols: vec![ServiceProtocol::Http],
             routes: vec![Route {
                 name: "mid-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/middleware`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/middleware`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()
@@ -230,11 +229,9 @@ async fn test_websocket_middleware() {
             protocols: vec![ServiceProtocol::Ws],
             routes: vec![Route {
                 name: "mid-ws-route".to_string(),
-                rules: vec![Rule {
-                    rule: "PathPrefix(`/ws`)".to_string(),
-                    priority: Some(1),
-                    ..Default::default()
-                }],
+                rule: "PathPrefix(`/ws`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
             }],
         })],
         ..Default::default()

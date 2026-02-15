@@ -47,63 +47,60 @@ use crate::error::JokowayError;
 fn compile_service(
     service: &Arc<crate::config::models::Service>,
 ) -> Result<RuntimeService, JokowayError> {
-    let total_rules: usize = service.routes.iter().map(|r| r.rules.len()).sum();
+    let total_rules = service.routes.len();
     let mut routes = Vec::with_capacity(total_rules);
 
     for route_config in &service.routes {
-        for rule_config in &route_config.rules {
-            let matcher = match parse_rule(&rule_config.rule) {
-                Ok(m) => m,
+        let matcher = match parse_rule(&route_config.rule) {
+            Ok(m) => m,
+            Err(e) => {
+                return Err(JokowayError::Config(format!(
+                    "Rule parse error [service={}, route={}, rule={}]: {}",
+                    service.name, route_config.name, route_config.rule, e
+                )));
+            }
+        };
+
+        let req_transformer = route_config
+            .request_transformer
+            .as_ref()
+            .and_then(|t_str| match parse_transformers(t_str) {
+                Ok(t) => Some(Arc::from(t)),
                 Err(e) => {
-                    return Err(JokowayError::Config(format!(
-                        "Rule parse error [service={}, route={}, rule={}]: {}",
-                        service.name, route_config.name, rule_config.rule, e
-                    )));
+                    log::error!(
+                        "Request transformer parse error [service={}, route={}, transformer={}]: {}",
+                        service.name,
+                        route_config.name,
+                        t_str,
+                        e
+                    );
+                    None
                 }
-            };
-
-            let req_transformer =
-                rule_config
-                    .request_transformer
-                    .as_ref()
-                    .and_then(|t_str| match parse_transformers(t_str) {
-                        Ok(t) => Some(Arc::from(t)),
-                        Err(e) => {
-                            log::error!(
-                                "Request transformer parse error [service={}, route={}, transformer={}]: {}",
-                                service.name,
-                                route_config.name,
-                                t_str,
-                                e
-                            );
-                            None
-                        }
-                    });
-
-            let res_transformer = rule_config
-                .response_transformer
-                .as_ref()
-                .and_then(|t_str| match parse_response_transformers(t_str) {
-                    Ok(t) => Some(Arc::from(t)),
-                    Err(e) => {
-                        log::error!(
-                            "Response transformer parse error [service={}, route={}, transformer={}]: {}",
-                            service.name,
-                            route_config.name,
-                            t_str,
-                            e
-                        );
-                        None
-                    }
-                });
-
-            routes.push(RuntimeRoute {
-                matcher,
-                priority: rule_config.priority.unwrap_or(0),
-                req_transformer,
-                res_transformer,
             });
-        }
+
+        let res_transformer = route_config
+            .response_transformer
+            .as_ref()
+            .and_then(|t_str| match parse_response_transformers(t_str) {
+                Ok(t) => Some(Arc::from(t)),
+                Err(e) => {
+                    log::error!(
+                        "Response transformer parse error [service={}, route={}, transformer={}]: {}",
+                        service.name,
+                        route_config.name,
+                        t_str,
+                        e
+                    );
+                    None
+                }
+            });
+
+        routes.push(RuntimeRoute {
+            matcher,
+            priority: route_config.priority.unwrap_or(0),
+            req_transformer,
+            res_transformer,
+        });
     }
 
     routes.sort_by(|a, b| b.priority.cmp(&a.priority));
@@ -389,7 +386,7 @@ impl ServiceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{JokowayConfig, Route, Rule, Service};
+    use crate::config::models::{JokowayConfig, Route, Service};
 
     #[test]
     fn test_protocol_filtering() {
@@ -468,23 +465,22 @@ mod tests {
                 name: "test_service".to_string(),
                 host: "test_backend".to_string(),
                 protocols: vec![ServiceProtocol::Http],
-                routes: vec![Route {
-                    name: "test_route".to_string(),
-                    rules: vec![
-                        Rule {
-                            rule: "Host(`example.com`)".to_string(),
-                            priority: Some(10),
-                            request_transformer: None,
-                            response_transformer: None,
-                        },
-                        Rule {
-                            rule: "Host(`api.example.com`)".to_string(),
-                            priority: Some(5),
-                            request_transformer: None,
-                            response_transformer: None,
-                        },
-                    ],
-                }],
+                routes: vec![
+                    Route {
+                        name: "test_route_1".to_string(),
+                        rule: "Host(`example.com`)".to_string(),
+                        priority: Some(10),
+                        request_transformer: None,
+                        response_transformer: None,
+                    },
+                    Route {
+                        name: "test_route_2".to_string(),
+                        rule: "Host(`api.example.com`)".to_string(),
+                        priority: Some(5),
+                        request_transformer: None,
+                        response_transformer: None,
+                    },
+                ],
             }]
             .into_iter()
             .map(Arc::new)

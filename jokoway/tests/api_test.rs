@@ -1,6 +1,6 @@
 use jokoway::config::models::{
-    ApiSettings, BasicAuth, JokowayConfig, RateLimit, Route, Rule, Service, ServiceProtocol,
-    Upstream, UpstreamServer,
+    ApiSettings, BasicAuth, JokowayConfig, RateLimit, Route, Service, ServiceProtocol, Upstream,
+    UpstreamServer,
 };
 use jokoway::extensions::api::{
     AddServiceRequest, AddUpstreamRequest, RemoveServiceRequest, RemoveUpstreamRequest,
@@ -251,10 +251,8 @@ async fn test_api_services() {
         protocols: vec![ServiceProtocol::Http],
         routes: vec![Route {
             name: "test-route".to_string(),
-            rules: vec![Rule {
-                rule: "PathPrefix(`/`)".to_string(),
-                ..Default::default()
-            }],
+            rule: "PathPrefix(`/`)".to_string(),
+            ..Default::default()
         }],
     };
     let resp = client
@@ -284,10 +282,8 @@ async fn test_api_services() {
         protocols: vec![ServiceProtocol::Http],
         routes: vec![Route {
             name: "test-route".to_string(),
-            rules: vec![Rule {
-                rule: "PathPrefix(`/updated`)".to_string(),
-                ..Default::default()
-            }],
+            rule: "PathPrefix(`/updated`)".to_string(),
+            ..Default::default()
         }],
     };
     let resp = client
@@ -387,10 +383,8 @@ async fn test_proxy_via_api() {
         protocols: vec![ServiceProtocol::Http],
         routes: vec![Route {
             name: "dynamic-route".to_string(),
-            rules: vec![Rule {
-                rule: "PathPrefix(`/target`)".to_string(),
-                ..Default::default()
-            }],
+            rule: "PathPrefix(`/target`)".to_string(),
+            ..Default::default()
         }],
     };
     let resp = client
