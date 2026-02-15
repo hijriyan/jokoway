@@ -22,8 +22,7 @@ jokoway:
         - wss
       routes:
         - name: forward-all
-          rules:
-            - rule: Host(`httpbin.kuli.dev`) && PathPrefix(`/`)
+          rule: Host(`httpbin.kuli.dev`) && PathPrefix(`/`)
 
 pingora:
   threads: 2
