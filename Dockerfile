@@ -7,9 +7,9 @@ WORKDIR /app
 # Install build dependencies
 # build-essential: gcc, g++, make
 # cmake, perl, pkg-config: Build tools (needed for zstd-sys, libz-ng-sys, etc)
-# golang, libclang-dev, git: Required for boring-sys (BoringSSL) and bindgen
+# libclang-dev, git: Required for boring-sys (BoringSSL) and bindgen
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake perl pkg-config golang libclang-dev git ca-certificates \
+    build-essential cmake perl pkg-config libclang-dev git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code
