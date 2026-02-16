@@ -1,16 +1,16 @@
 #![allow(dead_code)]
-use futures_util::{SinkExt, StreamExt};
-use openssl::asn1::Asn1Time;
-use openssl::bn::{BigNum, MsbOption};
-use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, Private};
-use openssl::rsa::Rsa;
-use openssl::ssl::{Ssl, SslAcceptor, SslMethod, SslVerifyMode};
-use openssl::x509::extension::{
+use boring::asn1::Asn1Time;
+use boring::bn::{BigNum, MsbOption};
+use boring::hash::MessageDigest;
+use boring::pkey::{PKey, Private};
+use boring::rsa::Rsa;
+use boring::ssl::{SslAcceptor, SslMethod, SslVerifyMode};
+use boring::x509::extension::{
     BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName,
 };
-use openssl::x509::{X509, X509NameBuilder};
-use std::pin::Pin;
+use boring::x509::{X509, X509NameBuilder};
+use futures_util::{SinkExt, StreamExt};
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
@@ -179,10 +179,11 @@ pub async fn start_mtls_mock(certs: &Certs) -> (String, tokio::task::JoinHandle<
     let mut acceptor = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
 
     // Configure CA verification
-    let mut store = openssl::x509::store::X509StoreBuilder::new().unwrap();
+    let mut store = boring::x509::store::X509StoreBuilder::new().unwrap();
     let ca_cert = X509::from_pem(certs.ca_cert.as_bytes()).unwrap();
     store.add_cert(ca_cert).unwrap();
-    acceptor.set_cert_store(store.build());
+    // Use set_cert_store_builder instead of deprecated set_cert_store
+    acceptor.set_cert_store_builder(store);
 
     acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
 
@@ -202,14 +203,14 @@ pub async fn start_mtls_mock(certs: &Certs) -> (String, tokio::task::JoinHandle<
             let (stream, _) = listener.accept().await.unwrap();
             let acceptor = acceptor.clone();
             tokio::spawn(async move {
-                let ssl = Ssl::new(acceptor.context()).unwrap();
-                let mut stream = tokio_openssl::SslStream::new(ssl, stream).unwrap();
-
-                // Wait for the handshake to complete
-                if let Err(e) = Pin::new(&mut stream).accept().await {
-                    eprintln!("Mock mTLS server handshake failed: {}", e);
-                    return;
-                }
+                // Use tokio_boring::accept to handle handshake and stream creation
+                let mut stream = match tokio_boring::accept(&acceptor, stream).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Mock mTLS server handshake failed: {}", e);
+                        return;
+                    }
+                };
 
                 // Read HTTP request (optional, but good to consume)
                 let mut buf = [0u8; 1024];

@@ -1,5 +1,7 @@
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use boring::pkey::{PKey, Private};
+use boring::x509::X509;
 use dashmap::DashMap;
 use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
@@ -7,8 +9,6 @@ use instant_acme::{
 };
 use jokoway_core::{HttpMiddleware, JokowayExtension};
 use jokoway_rules::registry::get_registered_hosts;
-use openssl::pkey::{PKey, Private};
-use openssl::x509::X509;
 use pingora::{
     Error,
     http::ResponseHeader,
@@ -517,7 +517,7 @@ impl AcmeManager {
         domain: &str,
         key_auth: &str,
     ) -> Result<(String, String), Box<dyn std::error::Error>> {
-        use openssl::sha::sha256;
+        use boring::sha::sha256;
 
         // Generate a key pair for the certificate
         let key_pair = rcgen::KeyPair::generate()?;

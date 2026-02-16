@@ -6,11 +6,11 @@ use crate::server::proxy::JokowayProxy;
 use crate::server::router::{HTTPS_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
+use boring::pkey::PKey;
+use boring::ssl::{NameType, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
+use boring::x509::X509;
 #[cfg(feature = "acme-extension")]
 use jokoway_acme::{AcmeConfigExt, AcmeManager};
-use openssl::pkey::PKey;
-use openssl::ssl::{NameType, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
-use openssl::x509::X509;
 use pingora::listeners::tls::TlsSettings;
 use pingora::proxy::http_proxy_service;
 use std::fs;
@@ -23,7 +23,7 @@ impl HttpsExtension {
     fn load_pem_pair_from_files(
         cert_path: &str,
         key_path: &str,
-    ) -> Result<(X509, PKey<openssl::pkey::Private>), Box<dyn std::error::Error>> {
+    ) -> Result<(X509, PKey<boring::pkey::Private>), Box<dyn std::error::Error>> {
         let cert_pem = fs::read(cert_path)?;
         let key_pem = fs::read(key_path)?;
         let cert = X509::from_pem(&cert_pem)?;
@@ -33,7 +33,7 @@ impl HttpsExtension {
 
     fn self_signed_pair(
         ssl: &crate::config::models::SslSettings,
-    ) -> Option<(X509, PKey<openssl::pkey::Private>)> {
+    ) -> Option<(X509, PKey<boring::pkey::Private>)> {
         let subject_alt_names = ssl
             .sans
             .clone()
@@ -281,7 +281,7 @@ impl JokowayExtension for HttpsExtension {
                             && ssl_ref.set_private_key(&cached.private_key).is_ok()
                         {
                             for intermediate in cached.certificate_chain.iter().skip(1) {
-                                let _ = ssl_ref.add_chain_cert(intermediate.clone());
+                                let _ = ssl_ref.add_chain_cert(intermediate);
                             }
                             log::debug!(
                                 "Successfully applied ACME certificate (cached) for {}",
@@ -330,7 +330,7 @@ impl JokowayExtension for HttpsExtension {
                     ))));
                 }
                 if let Some(tls13) = &ciphers.tls13
-                    && let Err(e) = ssl_acceptor.set_ciphersuites(&tls13.join(":"))
+                    && let Err(e) = ssl_acceptor.set_cipher_list(&tls13.join(":"))
                 {
                     log::error!("Failed to set TLS1.3 ciphersuites: {}", e);
                     return Err(Box::new(JokowayError::Tls(format!(

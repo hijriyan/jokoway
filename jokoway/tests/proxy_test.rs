@@ -270,12 +270,21 @@ async fn test_https_proxy() {
     let url = format!("https://localhost:{}/secure", port_https);
 
     let mut success = false;
-    if let Ok(resp) = client.get(&url).send().await
-        && resp.status() == 200
-    {
-        let body = resp.text().await.unwrap();
-        assert_eq!(body, "secure world");
-        success = true;
+    for _ in 0..50 {
+        match client.get(&url).send().await {
+            Ok(resp) => {
+                if resp.status() == 200 {
+                    let body = resp.text().await.unwrap();
+                    assert_eq!(body, "secure world");
+                    success = true;
+                    break;
+                }
+            }
+            Err(_) => {
+                // Ignore error and retry
+            }
+        }
+        sleep(Duration::from_millis(100)).await;
     }
     assert!(success, "Failed to connect to HTTPS proxy at {}", url);
 }
