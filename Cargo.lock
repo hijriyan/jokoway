@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1678,7 +1678,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-acme"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1700,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-compress"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "async-trait",
  "brotli 6.0.0",
@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-core"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "arc-swap",
  "async-trait",

@@ -1,6 +1,6 @@
 [package]
 name = "jokoway"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 edition = "2024"
 license = "MIT"
 description = "Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs."
@@ -9,8 +9,7 @@ readme = "../README.md"
 repository = "https://github.com/hijriyan/jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.3" }
-jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.3" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.4" }
 jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
 jokoway-transformer = { path = "../jokoway-transformer", version = "0.1.0-alpha.1" }
 pingora = { version = "0.7.0", features = ["lb", "proxy", "openssl"] }
@@ -35,7 +34,8 @@ hickory-resolver = { version = "0.24", features = [
 ] }
 
 # optional dependencies
-jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.3", optional = true }
+jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.4", optional = true }
+jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.4", optional = true }
 axum = { version = "0.8", optional = true }
 tower_governor = { version = "0.8", optional = true }
 base64 = { version = "0.22", optional = true }
