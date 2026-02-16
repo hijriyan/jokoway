@@ -63,6 +63,7 @@ const NON_COMPRESSIBLE_TYPES: &[&str] = &[
 
 /// Compression settings for YAML configuration (with Option fields for partial config)
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CompressionSettings {
     pub min_size: Option<usize>,
     pub content_types: Option<Vec<String>>,
@@ -75,6 +76,7 @@ pub struct CompressionSettings {
 
 /// YAML config for Gzip
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct GzipSettings {
     pub level: Option<u8>,
 }
@@ -82,6 +84,7 @@ pub struct GzipSettings {
 /// YAML config for Brotli
 #[cfg(feature = "brotli")]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct BrotliSettings {
     pub quality: Option<u32>,
     pub lgwin: Option<u32>,
@@ -91,6 +94,7 @@ pub struct BrotliSettings {
 /// YAML config for Zstd
 #[cfg(feature = "zstd")]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ZstdSettings {
     pub level: Option<i32>,
 }
@@ -733,21 +737,20 @@ impl HttpMiddleware for CompressMiddleware {
             }
         }
 
-        if end_of_stream
-            && let Some(compressor) = ctx.compressor.take() {
-                match self.safe_finish_compression(Some(compressor)) {
-                    Ok(data) => {
-                        finish_data = data;
-                    }
-                    Err(e) => {
-                        return Err(Error::because(
-                            pingora::ErrorType::InternalError,
-                            "compression finish failed",
-                            e,
-                        ));
-                    }
+        if end_of_stream && let Some(compressor) = ctx.compressor.take() {
+            match self.safe_finish_compression(Some(compressor)) {
+                Ok(data) => {
+                    finish_data = data;
+                }
+                Err(e) => {
+                    return Err(Error::because(
+                        pingora::ErrorType::InternalError,
+                        "compression finish failed",
+                        e,
+                    ));
                 }
             }
+        }
 
         // Combine chunks if necessary
         match (chunk_data, finish_data) {

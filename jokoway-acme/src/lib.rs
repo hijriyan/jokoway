@@ -37,6 +37,7 @@ pub enum AcmeChallengeType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AcmeSettings {
     pub ca_server: String,
     pub email: String,
