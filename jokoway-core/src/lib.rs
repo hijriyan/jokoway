@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod error;
+pub mod tls;
 pub mod websocket;
 
 use arc_swap::ArcSwap;

@@ -9,13 +9,13 @@ description = "Compression extension for Jokoway API Gateway"
 
 [dependencies]
 jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.4" }
-pingora = { version = "0.7.0", default-features = false, features = ["proxy"] }
-async-trait = "0.1"
-bytes = "1"
-log = "0.4"
-flate2 = "1.0"
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+pingora = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+log = { workspace = true }
+flate2 = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
 
 # Optional dependencies
 zstd = { version = "0.13", optional = true }

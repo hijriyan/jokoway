@@ -11,16 +11,39 @@ description = "ACME (Let's Encrypt) extension for Jokoway"
 jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.4" }
 jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
 instant-acme = "0.8.4"
-pingora = { version = "0.7.0", features = ["boringssl"] }
-async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
-log = "0.4"
-boring = "4"
-dashmap = "6.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1.0"
-x509-parser = "0.16"
-rcgen = "0.13"
-arc-swap = "1.7"
-bytes = "1"
-serde_yaml = "0.9.34"
+pingora = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+log = { workspace = true }
+boring = { workspace = true }
+dashmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+x509-parser = { workspace = true }
+rcgen = { workspace = true }
+arc-swap = { workspace = true }
+bytes = { workspace = true }
+serde_yaml = { workspace = true }
+hyper = { version = "1", optional = true }
+hyper-rustls = { version = "0.27", default-features = false, features = [
+    "http1",
+    "http2",
+    "tls12",
+    "ring",
+    "logging",
+    "native-tokio",
+], optional = true }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "logging",
+    "std",
+    "tls12",
+], optional = true }
+hyper-util = { version = "0.1", features = [
+    "client",
+    "client-legacy",
+], optional = true }
+
+[features]
+default = []
+pebble_tests = ["dep:hyper", "dep:hyper-rustls", "dep:rustls", "dep:hyper-util"]

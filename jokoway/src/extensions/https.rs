@@ -7,10 +7,9 @@ use crate::server::router::{HTTPS_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
 use boring::pkey::PKey;
-use boring::ssl::{NameType, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
+use boring::ssl::{AlpnError, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
 use boring::x509::X509;
-#[cfg(feature = "acme-extension")]
-use jokoway_acme::{AcmeConfigExt, AcmeManager};
+use jokoway_core::tls::{AlpnProtocol, contains_alpn_protocol};
 use pingora::listeners::tls::TlsSettings;
 use pingora::proxy::http_proxy_service;
 use std::fs;
@@ -85,8 +84,6 @@ impl JokowayExtension for HttpsExtension {
             return Ok(());
         }
 
-        #[cfg(feature = "acme-extension")]
-        let acme_manager = app_ctx.get::<AcmeManager>();
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
         })?;
@@ -183,121 +180,164 @@ impl JokowayExtension for HttpsExtension {
                 }
             }
 
-            #[cfg(feature = "acme-extension")]
-            let use_acme_tls_alpn = acme_manager.is_some()
-                && config
-                    .acme()
-                    .map(|acme| {
-                        matches!(acme.challenge, jokoway_acme::AcmeChallengeType::TlsAlpn01)
-                    })
-                    .unwrap_or(false);
+            let tls_callback = app_ctx.get::<TlsCallback>();
 
-            #[cfg(feature = "acme-extension")]
-            if use_acme_tls_alpn {
-                let acme_manager_for_alpn = acme_manager.clone();
-                ssl_acceptor.set_alpn_select_callback(move |ssl_ref, client_protos| {
-                    log::debug!("ALPN selection callback triggered (ACME mode)");
-
-                    // Helper to parse OpenSSL ALPN wire format (len1, proto1, len2, proto2...)
-                    let mut found_acme = false;
-                    let mut found_h2 = false;
-
-                    let mut pos = 0;
-                    while pos < client_protos.len() {
-                        let len = client_protos[pos] as usize;
-                        pos += 1;
-                        if pos + len > client_protos.len() {
-                            break;
-                        }
-                        let proto = &client_protos[pos..pos + len];
-                        if proto == b"acme-tls/1" {
-                            found_acme = true;
-                        } else if proto == b"h2" {
-                            found_h2 = true;
-                        }
-                        pos += len;
-                    }
-
-                    if found_acme {
-                        if let Some(name) = ssl_ref.servername(NameType::HOST_NAME) {
-                            log::debug!("ACME TLS-ALPN-01 support requested for {}", name);
-                            if let Some(am) = acme_manager_for_alpn.as_ref() {
-                                if am.get_certificate_cached(name, true).is_some() {
-                                    log::debug!("Selecting acme-tls/1 for {}", name);
-                                    return Ok(b"acme-tls/1");
-                                } else {
-                                    log::warn!(
-                                        "ACME challenge requested for {} but no cert in cache",
-                                        name
-                                    );
-                                }
-                            }
-                        } else {
-                            log::warn!("ACME challenge requested but no SNI hostname provided");
-                        }
-                    }
-
-                    if found_h2 { Ok(b"h2") } else { Ok(b"http/1.1") }
-                });
-            } else {
-                ssl_acceptor.set_alpn_select_callback(|_, client_protos| {
-                    log::debug!("ALPN selection callback triggered (Standard mode)");
-                    if client_protos.windows(2).any(|w| w == b"h2") {
-                        Ok(b"h2")
-                    } else {
-                        Ok(b"http/1.1")
-                    }
-                });
-            }
-
-            #[cfg(not(feature = "acme-extension"))]
-            ssl_acceptor.set_alpn_select_callback(|_, client_protos| {
-                log::debug!("ALPN selection callback triggered (Standard mode)");
-                if client_protos.windows(2).any(|w| w == b"h2") {
-                    Ok(b"h2")
-                } else {
-                    Ok(b"http/1.1")
-                }
-            });
-
-            // Configure SNI callback (always if acme is enabled to handle SNI-based cert loading)
-            #[cfg(feature = "acme-extension")]
-            let acme_manager_for_sni = acme_manager.clone();
+            // --- 1. SNI Callback ---
             let fallback_pair_for_sni = fallback_pair.clone();
+            let tls_cb_sni = tls_callback.clone();
 
-            ssl_acceptor.set_servername_callback(move |ssl_ref, _alert| {
-                if let Some(name) = ssl_ref
-                    .servername(NameType::HOST_NAME)
-                    .map(|value| value.to_string())
-                {
-                    log::debug!("SNI callback for hostname: {}", name);
-                    #[cfg(feature = "acme-extension")]
-                    if let Some(am) = acme_manager_for_sni.as_ref()
-                        && let Some(cached) = am.get_certificate_cached(&name, use_acme_tls_alpn)
-                    {
-                        log::debug!("Serving certificate from cache for {}", name);
-                        if let Some(leaf) = cached.certificate_chain.first()
-                            && ssl_ref.set_certificate(leaf).is_ok()
-                            && ssl_ref.set_private_key(&cached.private_key).is_ok()
-                        {
-                            for intermediate in cached.certificate_chain.iter().skip(1) {
-                                let _ = ssl_ref.add_chain_cert(intermediate);
+            ssl_acceptor.set_servername_callback(move |ssl_ref, alert| {
+                // 1. Dynamic Handler
+                if let Some(c) = tls_cb_sni.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        match handler.servername_callback(ssl_ref, alert) {
+                            Ok(()) => return Ok(()),
+                            Err(_e) => {
+                                // Delegate returned error/pass-through, but we can try fallback
                             }
-                            log::debug!(
-                                "Successfully applied ACME certificate (cached) for {}",
-                                name
-                            );
-                            return Ok(());
                         }
                     }
                 }
 
-                // Fallback cert if SNI matched nothing
+                // 2. Fallback Pair
                 if let Some((cert, key)) = fallback_pair_for_sni.as_ref() {
                     let _ = ssl_ref.set_certificate(cert);
                     let _ = ssl_ref.set_private_key(key);
                 }
                 Ok(())
+            });
+
+            // --- 2. ALPN Callback (must be set AFTER enable_h2() which overwrites it) ---
+            let tls_cb_alpn = tls_callback.clone();
+            ssl_acceptor.set_alpn_select_callback(move |ssl_ref, client_protos| {
+                // 1. Dynamic Handler (e.g. ACME TLS-ALPN-01)
+                if let Some(c) = tls_cb_alpn.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        match handler.alpn_select_callback(ssl_ref, client_protos) {
+                            Ok(idx) => return Ok(idx),
+                            Err(AlpnError::NOACK) => { /* fallthrough */ }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
+
+                // 2. Standard Default: prefer H2, fallback to H1
+                if contains_alpn_protocol(client_protos, AlpnProtocol::H2) {
+                    Ok(AlpnProtocol::H2.as_bytes())
+                } else {
+                    Ok(AlpnProtocol::H1.as_bytes())
+                }
+            });
+
+            // --- 3. Cert Selection Callback ---
+            let tls_cb_cert = tls_callback.clone();
+            ssl_acceptor.set_select_certificate_callback(move |client_hello| {
+                if let Some(c) = tls_cb_cert.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        return handler.select_certificate_callback(client_hello);
+                    }
+                }
+                Ok(())
+            });
+
+            // --- 4. Verify Callback ---
+            let tls_cb_verify = tls_callback.clone();
+            let verify_mode = if let Some(ca_path) = &ssl.cacert {
+                if let Err(e) = ssl_acceptor.set_ca_file(ca_path) {
+                    log::error!("Failed to set CA file for client auth: {}", e);
+                    SslVerifyMode::NONE
+                } else {
+                    // Enforce client auth if CA is specified
+                    SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
+                }
+            } else {
+                SslVerifyMode::NONE
+            };
+
+            // Note: using set_verify_callback overrides default verification logic
+            // We pass the determined verify_mode
+            ssl_acceptor.set_verify_callback(verify_mode, move |preverify, x509_ctx| {
+                if let Some(c) = tls_cb_verify.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        return handler.verify_callback(preverify, x509_ctx);
+                    }
+                }
+                preverify
+            });
+
+            // --- 5. Session Callbacks ---
+            let tls_cb_sess_new = tls_callback.clone();
+            ssl_acceptor.set_new_session_callback(move |ssl, session| {
+                if let Some(c) = tls_cb_sess_new.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        handler.new_session_callback(ssl, session);
+                    }
+                }
+            });
+
+            let tls_cb_sess_remove = tls_callback.clone();
+            ssl_acceptor.set_remove_session_callback(move |ctx, session| {
+                if let Some(c) = tls_cb_sess_remove.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        handler.remove_session_callback(ctx, session);
+                    }
+                }
+            });
+
+            unsafe {
+                let tls_cb_sess_get = tls_callback.clone();
+                ssl_acceptor.set_get_session_callback(move |ssl, id| {
+                    if let Some(c) = tls_cb_sess_get.as_ref() {
+                        let h_arc = c.get_handler();
+                        if let Some(handler) = h_arc.as_ref() {
+                            return handler.get_session_callback(ssl, id);
+                        }
+                    }
+                    Ok(None)
+                });
+            }
+
+            // --- 6. PSK Callback ---
+            let tls_cb_psk = tls_callback.clone();
+            ssl_acceptor.set_psk_server_callback(move |ssl, id, psk| {
+                if let Some(c) = tls_cb_psk.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        return handler.psk_server_callback(ssl, id, psk);
+                    }
+                }
+                Ok(0)
+            });
+
+            // --- 7. OCSP Status Callback ---
+            let tls_cb_status = tls_callback.clone();
+            ssl_acceptor
+                .set_status_callback(move |ssl| {
+                    if let Some(c) = tls_cb_status.as_ref() {
+                        let h_arc = c.get_handler();
+                        if let Some(handler) = h_arc.as_ref() {
+                            return handler.status_callback(ssl);
+                        }
+                    }
+                    Ok(true)
+                })
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+            // --- 8. Keylog Callback ---
+            let tls_cb_keylog = tls_callback.clone();
+            ssl_acceptor.set_keylog_callback(move |ssl, line| {
+                if let Some(c) = tls_cb_keylog.as_ref() {
+                    let h_arc = c.get_handler();
+                    if let Some(handler) = h_arc.as_ref() {
+                        handler.keylog_callback(ssl, line);
+                    }
+                }
             });
 
             if let Some(ver) = ssl.ssl_min_version.as_deref().and_then(parse_ssl_version)
@@ -357,8 +397,7 @@ impl JokowayExtension for HttpsExtension {
                 ssl_acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
             }
 
-            let mut tls_settings = TlsSettings::from(ssl_acceptor);
-            tls_settings.enable_h2();
+            let tls_settings = TlsSettings::from(ssl_acceptor);
             let mut https_service = http_proxy_service(&server.configuration, proxy.clone());
             https_service.add_tls_with_settings(
                 config.https_listen.as_ref().unwrap(),

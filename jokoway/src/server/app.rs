@@ -113,6 +113,10 @@ impl App {
         // Share resources via AppCtx for extensions to use
         app_ctx.insert(self.config.clone());
 
+        // Initialize TLS Callback support
+        let tls_callback = TlsCallback::new();
+        app_ctx.insert(tls_callback);
+
         // Initialize DNS Resolver early
         let dns_resolver = DnsResolver::new(&self.config);
         app_ctx.insert(dns_resolver);
@@ -130,7 +134,6 @@ impl App {
             server.add_service(service);
         }
 
-        // Stable sort - maintains insertion order for same values
         self.extensions
             .sort_by_key(|e| std::cmp::Reverse(e.order()));
 

@@ -1,4 +1,5 @@
 use arc_swap::ArcSwap;
+pub mod tls;
 use async_trait::async_trait;
 use boring::pkey::{PKey, Private};
 use boring::x509::X509;
@@ -25,6 +26,17 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use x509_parser::pem::Pem;
 
+// For insecure client
+#[cfg(feature = "pebble_tests")]
+use hyper_util::client::legacy::Client;
+#[cfg(feature = "pebble_tests")]
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+#[cfg(feature = "pebble_tests")]
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+#[cfg(feature = "pebble_tests")]
+use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
+use std::fmt::Debug;
+
 use jokoway_core::config::{ConfigBuilder, JokowayConfig};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -44,6 +56,11 @@ pub struct AcmeSettings {
     pub storage: String,
     #[serde(default)]
     pub challenge: AcmeChallengeType,
+    #[cfg(feature = "pebble_tests")]
+    #[serde(default)]
+    pub insecure: bool,
+    #[serde(default)]
+    pub renewal_interval: Option<u64>,
 }
 
 pub trait AcmeConfigExt {
@@ -54,7 +71,13 @@ impl AcmeConfigExt for JokowayConfig {
     fn acme(&self) -> Option<AcmeSettings> {
         self.extra
             .get("acme")
-            .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+            .and_then(|v| match serde_yaml::from_value(v.clone()) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    log::error!("Failed to deserialize ACME settings: {}", e);
+                    None
+                }
+            })
     }
 }
 
@@ -80,6 +103,60 @@ pub struct CertificateEntry {
 
 // --- AcmeManager ---
 
+#[cfg(feature = "pebble_tests")]
+#[derive(Debug)]
+struct NoVerifier;
+
+#[cfg(feature = "pebble_tests")]
+impl ServerCertVerifier for NoVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA1,
+            SignatureScheme::ECDSA_SHA1_Legacy,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::ED25519,
+            SignatureScheme::ED448,
+        ]
+    }
+}
+
 #[derive(Clone)]
 pub struct AcmeManager {
     settings: AcmeSettings,
@@ -95,6 +172,10 @@ pub struct AcmeManager {
 
 impl AcmeManager {
     pub fn new(settings: &AcmeSettings) -> Self {
+        // Ensure rustls has a crypto provider (needed for 0.23+)
+        #[cfg(feature = "pebble_tests")]
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
         let manager = Self {
             settings: settings.clone(),
             challenges: Arc::new(DashMap::new()),
@@ -327,10 +408,41 @@ impl AcmeManager {
         log::debug!("Starting ACME order for domains: {:?}", domains);
 
         // 1. Get or Create ACME Account
+
+        #[allow(unused_mut)]
+        let mut builder = Account::builder()?;
+
+        #[cfg(feature = "pebble_tests")]
+        if self.settings.insecure {
+            // HACK: To support custom verifier with hyper-rustls, we usually need to build ClientConfig
+            // and pass to with_tls_config. But doing set_certificate_verifier on ClientConfig is hard
+            // because DangerousClientConfig takes &mut ClientConfig.
+            //
+            // Instead, let's construct ClientConfig, modify it, then build connector.
+            let root_store = rustls::RootCertStore::empty();
+            let mut config = ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+
+            // Set custom verifier
+            config
+                .dangerous()
+                .set_certificate_verifier(Arc::new(NoVerifier));
+
+            let tls = hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(config)
+                .https_or_http()
+                .enable_http1()
+                .build();
+
+            let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(tls);
+            builder = Account::builder_with_http(Box::new(client));
+        }
+
         let account = if let Some(creds_json) = self.load_account() {
             log::debug!("Loading existing ACME account");
             let creds: AccountCredentials = serde_json::from_str(&creds_json)?;
-            Account::builder()?.from_credentials(creds).await?
+            builder.from_credentials(creds).await?
         } else {
             log::debug!("Creating new ACME account");
             let contact = format!("mailto:{}", self.settings.email);
@@ -340,7 +452,7 @@ impl AcmeManager {
                 only_return_existing: false,
             };
 
-            let (account, credentials) = Account::builder()?
+            let (account, credentials) = builder
                 .create(&new_account, self.settings.ca_server.clone(), None)
                 .await?;
 
@@ -633,6 +745,18 @@ impl JokowayExtension for AcmeExtension {
         // We clone the inner AcmeManager handle and insert it so get::<AcmeManager>() works
         app_ctx.insert((*self.acme_manager).clone());
 
+        // Register TLS Callback Handler
+        if let Some(tls_callback) = app_ctx.get::<jokoway_core::tls::TlsCallback>() {
+            let config = app_ctx
+                .get::<jokoway_core::config::models::JokowayConfig>()
+                .ok_or_else(|| "JokowayConfig not found in AppCtx")?;
+
+            let handler =
+                crate::tls::AcmeTlsHandler::new(self.acme_manager.clone(), (*config).clone());
+            tls_callback.set_handler(handler);
+            log::info!("Registered ACME TLS callback handler");
+        }
+
         let middleware = AcmeMiddleware {
             acme_manager: self.acme_manager.clone(),
         };
@@ -649,7 +773,13 @@ pub struct AcmeRenewalService {
 #[async_trait]
 impl BackgroundService for AcmeRenewalService {
     async fn start(&self, mut shutdown: ShutdownWatch) {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400)); // 24 hours
+        let period_secs = self.acme.settings.renewal_interval.unwrap_or(86400);
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(period_secs));
+
+        // Immediate check on startup if configured for short intervals (testing)
+        if period_secs < 60 {
+            self.renew_certificates().await;
+        }
 
         loop {
             tokio::select! {
@@ -756,6 +886,9 @@ mod tests {
             email: "admin@example.com".to_string(),
             storage: "/tmp/acme".to_string(),
             challenge: AcmeChallengeType::TlsAlpn01,
+            #[cfg(feature = "pebble_tests")]
+            insecure: false,
+            ..Default::default()
         };
 
         let yaml = serde_yaml::to_string(&settings).unwrap();
@@ -780,6 +913,9 @@ mod tests {
             email: "test@example.com".to_string(),
             storage: "storage.json".to_string(),
             challenge: AcmeChallengeType::Http01,
+            #[cfg(feature = "pebble_tests")]
+            insecure: false,
+            ..Default::default()
         };
 
         let val = serde_yaml::to_value(&settings).unwrap();
@@ -797,6 +933,9 @@ mod tests {
             email: "builder@example.com".to_string(),
             storage: "builder.json".to_string(),
             challenge: AcmeChallengeType::TlsAlpn01,
+            #[cfg(feature = "pebble_tests")]
+            insecure: false,
+            ..Default::default()
         };
 
         let builder = ConfigBuilder::new().with_acme(settings);
@@ -814,6 +953,9 @@ mod tests {
             email: "email".to_string(),
             storage: "/tmp/test_acme_storage.json".to_string(),
             challenge: AcmeChallengeType::Http01,
+            #[cfg(feature = "pebble_tests")]
+            insecure: false,
+            ..Default::default()
         };
 
         // Ensure clean state

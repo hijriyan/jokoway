@@ -8,19 +8,17 @@ repository = "https://github.com/hijriyan/jokoway"
 description = "Core traits and types for Jokoway API Gateway"
 
 [dependencies]
-pingora = { version = "0.7.0", features = ["proxy", "boringssl"] }
-async-trait = "0.1"
-bytes = "1"
-arc-swap = "1.8.0"
-flate2 = "1.1.9"
-serde = { version = "1", features = ["derive", "rc"] }
-serde_yaml = "0.9"
+pingora = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+arc-swap = { workspace = true }
+boring = { workspace = true }
+flate2 = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
 
 # optional dependencies
-utoipa = { version = "5.4.0", features = [
-    "axum_extras",
-    "yaml",
-], optional = true }
+utoipa = { workspace = true, optional = true }
 
 [features]
 api-extension = ["dep:utoipa"]

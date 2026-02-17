@@ -1,0 +1,16 @@
+services:
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: -config /test/config/pebble-config.json
+    ports:
+      - "14000:14000"
+      - "15000:15000"
+    environment:
+      - PEBBLE_VA_NOSLEEP=1
+      - PEBBLE_WFE_NONCE_REJECT_DEPTH=0
+    volumes:
+      - ./pebble-config.json:/test/config/pebble-config.json
+      - ./certs/cert.pem:/test/config/cert.pem
+      - ./certs/key.pem:/test/config/key.pem
+    extra_hosts:
+      - "test.com:host-gateway"
