@@ -302,14 +302,6 @@ impl JokowayExtension for ApiExtension {
             }),
         );
         server.add_service(service);
-
-        log::info!(
-            "API Extension initialized on {}",
-            self.settings
-                .listen
-                .as_ref()
-                .unwrap_or(&"unknown".to_string())
-        );
         Ok(())
     }
 }

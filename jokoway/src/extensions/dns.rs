@@ -166,6 +166,10 @@ impl DnsResolver {
 pub struct DnsExtension;
 
 impl JokowayExtension for DnsExtension {
+    fn order(&self) -> i16 {
+        i16::MAX
+    }
+
     fn init(
         &self,
         _server: &mut pingora::server::Server,

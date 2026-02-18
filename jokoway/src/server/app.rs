@@ -1,11 +1,11 @@
 use crate::config::models::{JokowayConfig, ServerConf};
-use crate::extensions::dns::{DnsExtension, DnsResolver};
+use crate::extensions::dns::DnsExtension;
 use crate::extensions::http::HttpExtension;
 use crate::extensions::https::HttpsExtension;
 use crate::prelude::*;
 use crate::server::service::ServiceManager;
 
-use crate::server::upstream::UpstreamManager;
+use crate::server::upstream::UpstreamExtension;
 #[cfg(feature = "acme-extension")]
 use jokoway_acme::{AcmeConfigExt, AcmeExtension};
 use jokoway_core::AppCtx;
@@ -46,6 +46,7 @@ impl App {
         }
 
         app.add_extension(DnsExtension);
+        app.add_extension(UpstreamExtension);
         app.add_extension(HttpExtension);
         app.add_extension(HttpsExtension);
 
@@ -117,22 +118,9 @@ impl App {
         let tls_callback = TlsCallback::new();
         app_ctx.insert(tls_callback);
 
-        // Initialize DNS Resolver early
-        let dns_resolver = DnsResolver::new(&self.config);
-        app_ctx.insert(dns_resolver);
-
-        // Initialize UpstreamManager
-        let (upstream_manager, lb_services) = UpstreamManager::new(&app_ctx)?;
-        app_ctx.insert(upstream_manager);
-
         // Initialize ServiceManager
         let service_manager = ServiceManager::new(config_arc.clone())?;
         app_ctx.insert(service_manager);
-
-        // Add LB background services
-        for service in lb_services {
-            server.add_service(service);
-        }
 
         self.extensions
             .sort_by_key(|e| std::cmp::Reverse(e.order()));

@@ -1,6 +1,7 @@
 use crate::config::models::JokowayConfig;
 use crate::error::JokowayError;
 use crate::extensions::dns::DnsResolver;
+use crate::prelude::*;
 use crate::server::context::AppCtx;
 use crate::server::discovery::JokowayUpstreamDiscovery;
 use crate::server::proxy::{CachedPeerConfig, merge_peer_options};
@@ -229,14 +230,11 @@ impl UpstreamManager {
             );
             services.push(background);
         }
-
-        Ok((
-            UpstreamManager {
-                load_balancers: ArcSwap::from_pointee(load_balancers),
-                cancellation_tokens,
-            },
-            services,
-        ))
+        let upstream_manager = UpstreamManager {
+            load_balancers: ArcSwap::from_pointee(load_balancers),
+            cancellation_tokens,
+        };
+        Ok((upstream_manager, services))
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<LoadBalancer<RoundRobin>>> {
@@ -369,6 +367,69 @@ impl UpstreamManager {
     }
 }
 
+pub struct UpstreamManagerService {
+    pub manager: Arc<UpstreamManager>,
+}
+
+impl UpstreamManagerService {
+    pub fn new(manager: Arc<UpstreamManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[async_trait]
+impl BackgroundService for UpstreamManagerService {
+    async fn start(&self, mut shutdown: ShutdownWatch) {
+        log::info!("UpstreamManagerService started");
+        let _ = shutdown.changed().await;
+        log::info!(
+            "UpstreamManagerService shutting down, cancelling all upstream background tasks"
+        );
+        for entry in self.manager.cancellation_tokens.iter() {
+            entry.value().cancel();
+        }
+    }
+}
+
+pub struct UpstreamExtension;
+
+impl JokowayExtension for UpstreamExtension {
+    fn order(&self) -> i16 {
+        // run after DnsExtension
+        i16::MAX - 1
+    }
+
+    fn init(
+        &self,
+        server: &mut pingora::server::Server,
+        app_ctx: &mut AppCtx,
+        _http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
+        _websocket_middlewares: &mut Vec<
+            std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
+        >,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Initialize UpstreamManager
+        let (upstream_manager, lb_services) = UpstreamManager::new(app_ctx)?;
+        app_ctx.insert(upstream_manager);
+
+        // Add LB background services
+        for service in lb_services {
+            server.add_service(service);
+        }
+
+        // add upstream background service
+        let upstream_manager_service = pingora::prelude::background_service(
+            "upstream_manager_service",
+            UpstreamManagerService::new(app_ctx.get::<UpstreamManager>().unwrap().clone()),
+        );
+        server.add_service(upstream_manager_service);
+
+        log::info!("UpstreamManager initialized");
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,10 +437,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_sni_fallback() {
-        // We'll simulate the logic inside UpstreamManager::new by extracting the relevant block
-        // or just testing the result via creating a config.
-        // Creating config is cleaner as it tests integration.
-
         let config = JokowayConfig {
             upstreams: vec![
                 Upstream {
@@ -466,12 +523,6 @@ mod tests {
 
         let (manager, _) = UpstreamManager::new(&app_ctx).expect("Failed to create manager");
         manager.update_backends().await;
-
-        // To verify, we would ideally inspect the CachedPeerConfig in the LoadBalancer.
-        // However, LoadBalancer internals are private.
-        // We might need to rely on the fact that we can call get_backend() if we mock things, but that's hard.
-        // Instead, let's verify via the logs (manual) or trust the logic if we could unit test the logic directly.
-        // Or we can query the load balancer's backends and check extensions if accessible.
 
         let lb_domain = manager.get("domain_upstream").unwrap();
         let backends = lb_domain.backends().get_backend();

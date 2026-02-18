@@ -1,0 +1,9 @@
+jokoway:
+  http_listen: 0.0.0.0:2014
+
+  api:
+    listen: 0.0.0.0:2025
+
+pingora:
+  threads: 1
+  daemon: false
