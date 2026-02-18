@@ -246,13 +246,22 @@ impl JokowayExtension for HttpsExtension {
             // --- 4. Verify Callback ---
             let tls_cb_verify = tls_callback.clone();
             let verify_mode = if let Some(ca_path) = &ssl.cacert {
-                if let Err(e) = ssl_acceptor.set_ca_file(ca_path) {
-                    log::error!("Failed to set CA file for client auth: {}", e);
-                    SslVerifyMode::NONE
-                } else {
-                    // Enforce client auth if CA is specified
-                    SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
+                if !Path::new(ca_path).exists() {
+                    return Err(Box::new(JokowayError::Tls(format!(
+                        "CA certificate file not found: {}",
+                        ca_path
+                    ))));
                 }
+
+                if let Err(e) = ssl_acceptor.set_ca_file(ca_path) {
+                    return Err(Box::new(JokowayError::Tls(format!(
+                        "Failed to set CA file for client auth: {}",
+                        e
+                    ))));
+                }
+
+                // Enforce client auth if CA is specified
+                SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
             } else {
                 SslVerifyMode::NONE
             };
@@ -378,23 +387,6 @@ impl JokowayExtension for HttpsExtension {
                         e
                     ))));
                 }
-            }
-
-            if let Some(cacert) = &ssl.cacert {
-                if !Path::new(cacert).exists() {
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "CA certificate file not found: {}",
-                        cacert
-                    ))));
-                }
-                if let Err(e) = ssl_acceptor.set_ca_file(cacert) {
-                    log::error!("Failed to set CA file {}: {}", cacert, e);
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set CA file {}: {}",
-                        cacert, e
-                    ))));
-                }
-                ssl_acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
             }
 
             let tls_settings = TlsSettings::from(ssl_acceptor);
