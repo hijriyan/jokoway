@@ -40,7 +40,11 @@ utoipa-swagger-ui = { workspace = true, optional = true }
 
 [features]
 default = ["compress-extension", "api-extension", "acme-extension"]
-compress-extension = ["compress-zstd", "compress-brotli"]
+compress-extension = [
+    "dep:jokoway-compress",
+    "compress-zstd",
+    "compress-brotli",
+]
 api-extension = [
     "dep:axum",
     "dep:tower_governor",
