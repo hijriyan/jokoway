@@ -749,7 +749,7 @@ impl JokowayExtension for AcmeExtension {
         if let Some(tls_callback) = app_ctx.get::<jokoway_core::tls::TlsCallback>() {
             let config = app_ctx
                 .get::<jokoway_core::config::models::JokowayConfig>()
-                .ok_or_else(|| "JokowayConfig not found in AppCtx")?;
+                .ok_or("JokowayConfig not found in AppCtx")?;
 
             let handler =
                 crate::tls::AcmeTlsHandler::new(self.acme_manager.clone(), (*config).clone());

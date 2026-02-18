@@ -59,17 +59,15 @@ impl TlsCallbackHandler for AcmeTlsHandler {
             return Err(AlpnError::NOACK);
         }
 
-        if contains_alpn_protocol(client_protos, AlpnProtocol::AcmeTls) {
-            if let Some(name) = ssl.servername(boring::ssl::NameType::HOST_NAME) {
-                if self
-                    .acme_manager
-                    .get_certificate_cached(name, true)
-                    .is_some()
-                {
-                    log::debug!("ALPN: selected acme-tls/1 for domain {}", name);
-                    return Ok(AlpnProtocol::AcmeTls.as_bytes());
-                }
-            }
+        if contains_alpn_protocol(client_protos, AlpnProtocol::AcmeTls)
+            && let Some(name) = ssl.servername(boring::ssl::NameType::HOST_NAME)
+            && self
+                .acme_manager
+                .get_certificate_cached(name, true)
+                .is_some()
+        {
+            log::debug!("ALPN: selected acme-tls/1 for domain {}", name);
+            return Ok(AlpnProtocol::AcmeTls.as_bytes());
         }
 
         Err(AlpnError::NOACK)
