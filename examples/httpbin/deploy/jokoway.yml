@@ -11,7 +11,7 @@ jokoway:
     ca_server: https://acme-staging-v02.api.letsencrypt.org/directory # staging
     # ca_server: https://acme-v02.api.letsencrypt.org/directory # production
     email: april@kuli.dev
-    storage: /etc/letsencrypt/acme.json
+    storage: /opt/jokoway/acme/staging.json
     challenge: tls-alpn-01
 
   upstreams:
