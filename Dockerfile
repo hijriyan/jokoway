@@ -1,22 +1,29 @@
+# Chef stage
+FROM rust:1.92-bookworm AS chef
+USER root
+RUN cargo install cargo-chef --locked
+WORKDIR /app
+
+# Planner stage
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
 # Builder stage
-# Use rust:1.92-bookworm (Debian 12) to match distroless/cc-debian12's glibc 2.36
-# rust:1.92-slim uses Debian 13 (glibc 2.41) which is too new for distroless/cc-debian12
-FROM rust:1.92-bookworm AS builder
+FROM chef AS builder
 WORKDIR /app
 
 # Install build dependencies
-# build-essential: gcc, g++, make
-# cmake, perl, pkg-config: Build tools (needed for zstd-sys, libz-ng-sys, etc)
-# libclang-dev, git: Required for boring-sys (BoringSSL) and bindgen
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake perl pkg-config libclang-dev git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source code
-COPY . .
+# Cook dependencies - this is the docker caching layer!
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Build the application in release mode
-# The binary will be at /app/target/release/jokoway
+# Build application
+COPY . .
 RUN cargo build --release --bin jokoway
 
 # Create the directory for runtime
