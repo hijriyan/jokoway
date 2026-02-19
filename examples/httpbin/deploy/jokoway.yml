@@ -8,10 +8,11 @@ jokoway:
   ssl: *ssl_settings
 
   acme:
-    ca_server: https://acme-staging-v02.api.letsencrypt.org/directory # staging
-    # ca_server: https://acme-v02.api.letsencrypt.org/directory # production
+    # ca_server: https://acme-staging-v02.api.letsencrypt.org/directory # staging
+    ca_server: https://acme-v02.api.letsencrypt.org/directory # production
     email: april@kuli.dev
-    storage: /opt/jokoway/acme/staging.json
+    storage: /opt/jokoway/acme-prod.json
+    # storage: /opt/jokoway/acme-staging.json # staging
     challenge: tls-alpn-01
 
   upstreams:

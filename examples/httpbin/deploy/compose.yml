@@ -14,10 +14,10 @@ services:
       - "443:443"
     volumes:
       - ./jokoway.yml:/etc/jokoway/jokoway.yml
-      - letsencrypt:/opt/jokoway/acme
+      - jokoway-data:/opt/jokoway
     environment:
       - RUST_LOG=debug
     command: "-c /etc/jokoway/jokoway.yml"
 
 volumes:
-  letsencrypt:
+  jokoway-data:
