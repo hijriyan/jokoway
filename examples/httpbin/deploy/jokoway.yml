@@ -1,0 +1,36 @@
+x-ssl-settings: &ssl_settings
+  ssl_min_version: TLS1
+  ssl_max_version: TLS1.3
+
+jokoway:
+  http_listen: 0.0.0.0:80
+  https_listen: 0.0.0.0:443
+  ssl: *ssl_settings
+
+  acme:
+    ca_server: https://acme-staging-v02.api.letsencrypt.org/directory # staging
+    # ca_server: https://acme-v02.api.letsencrypt.org/directory # production
+    email: april@kuli.dev
+    storage: /etc/letsencrypt/acme.json
+    challenge: tls-alpn-01
+
+  upstreams:
+    - name: httpbin_upstream
+      servers:
+        - host: httpbin:8080
+
+  services:
+    - name: httpbin_service
+      host: httpbin_upstream
+      protocols:
+        - http
+        - https
+        - ws
+        - wss
+      routes:
+        - name: forward-all
+          rule: Host(`httpbin.kuli.dev`) && PathPrefix(`/`)
+
+pingora:
+  threads: 2
+  daemon: false
