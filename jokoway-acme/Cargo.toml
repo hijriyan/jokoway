@@ -1,6 +1,6 @@
 [package]
 name = "jokoway-acme"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 edition = "2024"
 license = "MIT"
 authors = ["Hijriyan <april@kuli.dev>"]
@@ -8,8 +8,8 @@ repository = "https://github.com/hijriyan/jokoway"
 description = "ACME (Let's Encrypt) extension for Jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.4" }
-jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.5" }
+jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.2" }
 instant-acme = "0.8.4"
 pingora = { workspace = true }
 async-trait = { workspace = true }
@@ -24,7 +24,6 @@ rcgen = { workspace = true }
 arc-swap = { workspace = true }
 bytes = { workspace = true }
 serde_yaml = { workspace = true }
-hyper = { version = "1", optional = true }
 hyper-rustls = { version = "0.27", default-features = false, features = [
     "http1",
     "http2",
@@ -46,4 +45,4 @@ hyper-util = { version = "0.1", features = [
 
 [features]
 default = []
-pebble_tests = ["dep:hyper", "dep:hyper-rustls", "dep:rustls", "dep:hyper-util"]
+pebble_tests = ["dep:hyper-rustls", "dep:rustls", "dep:hyper-util"]

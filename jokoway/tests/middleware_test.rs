@@ -509,11 +509,9 @@ impl HttpMiddleware for ElapsedTimeMiddleware {
         end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<Option<Duration>, Box<pingora::Error>> {
-        if end_of_stream {
-            if let Some(start) = ctx.start_time {
-                let elapsed = start.elapsed();
-                self.results.lock().unwrap().push(elapsed);
-            }
+        if end_of_stream && let Some(start) = ctx.start_time {
+            let elapsed = start.elapsed();
+            self.results.lock().unwrap().push(elapsed);
         }
         Ok(None)
     }

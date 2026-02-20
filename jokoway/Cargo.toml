@@ -1,6 +1,6 @@
 [package]
 name = "jokoway"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 edition = "2024"
 license = "MIT"
 description = "Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs."
@@ -9,9 +9,9 @@ readme = "../README.md"
 repository = "https://github.com/hijriyan/jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.4" }
-jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.1" }
-jokoway-transformer = { path = "../jokoway-transformer", version = "0.1.0-alpha.1" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.5" }
+jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.2" }
+jokoway-transformer = { path = "../jokoway-transformer", version = "0.1.0-alpha.2" }
 pingora = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
@@ -30,8 +30,8 @@ flate2 = { workspace = true }
 hickory-resolver = { workspace = true }
 
 # optional dependencies
-jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.4", optional = true }
-jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.4", optional = true }
+jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.5", optional = true }
+jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.5", optional = true }
 axum = { workspace = true, optional = true }
 tower_governor = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }

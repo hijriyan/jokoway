@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1779,14 +1779,13 @@ dependencies = [
 
 [[package]]
 name = "jokoway-acme"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "arc-swap",
  "async-trait",
  "boring",
  "bytes",
  "dashmap",
- "hyper",
  "hyper-rustls",
  "hyper-util",
  "instant-acme",
@@ -1805,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-compress"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "async-trait",
  "brotli 6.0.0",
@@ -1821,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-core"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1837,7 +1836,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-rules"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -1851,7 +1850,7 @@ dependencies = [
 
 [[package]]
 name = "jokoway-transformer"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "arc-swap",
  "http",

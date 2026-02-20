@@ -30,21 +30,18 @@ impl AcmeTlsHandler {
 impl TlsCallbackHandler for AcmeTlsHandler {
     fn servername_callback(&self, ssl: &mut SslRef, _alert: &mut SslAlert) -> Result<(), SniError> {
         let name = ssl.servername(boring::ssl::NameType::HOST_NAME);
-        if let Some(name) = name {
-            if let Some(cached) = self
+        if let Some(name) = name
+            && let Some(cached) = self
                 .acme_manager
                 .get_certificate_cached(name, self.use_tls_alpn)
-            {
-                if let Some(leaf) = cached.certificate_chain.first()
-                    && ssl.set_certificate(leaf).is_ok()
-                    && ssl.set_private_key(&cached.private_key).is_ok()
-                {
-                    for intermediate in cached.certificate_chain.iter().skip(1) {
-                        let _ = ssl.add_chain_cert(intermediate);
-                    }
-                    return Ok(());
-                }
+            && let Some(leaf) = cached.certificate_chain.first()
+            && ssl.set_certificate(leaf).is_ok()
+            && ssl.set_private_key(&cached.private_key).is_ok()
+        {
+            for intermediate in cached.certificate_chain.iter().skip(1) {
+                let _ = ssl.add_chain_cert(intermediate);
             }
+            return Ok(());
         }
         Ok(())
     }
