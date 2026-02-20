@@ -47,3 +47,7 @@ lto = "fat"
 codegen-units = 1
 strip = true      # Strip symbols to reduce binary size
 panic = "abort"   # Smaller binaries, slightly faster
+
+[profile.ci]
+inherits = "release"
+codegen-units = 6

@@ -110,32 +110,39 @@ impl Router {
 
     pub fn match_request(&self, req_header: &RequestHeader) -> Option<RouteMatch> {
         let all_services = self.service_manager.get_all();
-        let host_index = self.host_index.load();
-        let catch_all_indices = self.catch_all_indices.load();
 
         // 1. Check indexed services by Host header or URI host
         let uri_host = req_header.uri.host();
         let header_host = req_header.headers.get("Host").and_then(|v| v.to_str().ok());
 
-        // Check URI host first (authoritative)
-        if let Some(host) = uri_host
-            && let Some(indices) = host_index.get(host)
-            && let Some(m) = Self::find_route_in_indices(&all_services, indices, req_header)
-        {
-            return Some(m);
-        }
+        if uri_host.is_some() || header_host.is_some() {
+            let host_index = self.host_index.load();
 
-        // Check Host header if different from URI host
-        if let Some(host) = header_host
-            && Some(host) != uri_host
-            && let Some(indices) = host_index.get(host)
-            && let Some(m) = Self::find_route_in_indices(&all_services, indices, req_header)
-        {
-            return Some(m);
+            // Check URI host first (authoritative)
+            if let Some(host) = uri_host
+                && let Some(indices) = host_index.get(host)
+                && let Some(m) = Self::find_route_in_indices(&all_services, indices, req_header)
+            {
+                return Some(m);
+            }
+
+            // Check Host header if different from URI host
+            if let Some(host) = header_host
+                && Some(host) != uri_host
+                && let Some(indices) = host_index.get(host)
+                && let Some(m) = Self::find_route_in_indices(&all_services, indices, req_header)
+            {
+                return Some(m);
+            }
         }
 
         // 2. Check catch-all services (wildcards, regex, etc.)
-        Self::find_route_in_indices(&all_services, &catch_all_indices, req_header)
+        let catch_all_indices = self.catch_all_indices.load();
+        if catch_all_indices.is_empty() {
+            None
+        } else {
+            Self::find_route_in_indices(&all_services, &catch_all_indices, req_header)
+        }
     }
 
     #[inline]
@@ -145,14 +152,15 @@ impl Router {
         req_header: &RequestHeader,
     ) -> Option<RouteMatch> {
         for &idx in indices {
-            let service = &all_services[idx];
-            for route in &service.routes {
-                if route.matcher.matches(req_header) {
-                    return Some(RouteMatch {
-                        upstream_name: service.host.clone(),
-                        req_transformer: route.req_transformer.clone(),
-                        res_transformer: route.res_transformer.clone(),
-                    });
+            if let Some(service) = all_services.get(idx) {
+                for route in &service.routes {
+                    if route.matcher.matches(req_header) {
+                        return Some(RouteMatch {
+                            upstream_name: service.host.clone(),
+                            req_transformer: route.req_transformer.clone(),
+                            res_transformer: route.res_transformer.clone(),
+                        });
+                    }
                 }
             }
         }

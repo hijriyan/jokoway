@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y libclang-dev cmake pkg-config
       - uses: Swatinem/rust-cache@v2
       - name: Test
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --cargo-profile ci
 
   create-release:
     runs-on: ubuntu-latest
@@ -75,6 +75,7 @@ jobs:
         with:
           bin: jokoway
           target: ${{ matrix.target }}
+          profile: ci
           token: ${{ secrets.GITHUB_TOKEN }}
 
   docker:
@@ -102,6 +103,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.description=Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
