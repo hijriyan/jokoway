@@ -13,6 +13,11 @@ print-version:
 build-image:
     docker build -t {{image_name}}:{{version}} -t {{image_name}}:latest .
 
+# Build and push docker image to GHCR using buildx
+# NOTE: if you using orbstack, see https://www.simon-neutert.de/posts/2025/10/09/orbstack-multi-platform-builds/
+build-push-image:
+    docker buildx build --platform linux/amd64,linux/arm64 -t {{image_name}}:{{version}} -t {{image_name}}:latest --push .
+
 # Push docker image to GHCR
 push-image:
     docker push {{image_name}}:{{version}}
