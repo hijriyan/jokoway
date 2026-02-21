@@ -16,6 +16,14 @@ pub trait Matcher: Send + Sync + Debug {
     fn get_required_hosts(&self) -> (Vec<String>, bool) {
         (Vec::new(), true) // Default to wildcard (safest)
     }
+
+    /// Extract required paths for matchit if any.
+    /// Returns None if the route can match ANY path (no path constraint).
+    /// Returns Some(routes) if the rule STRICTLY requires specific paths (e.g. "/api/*rest" or "/exact").
+    fn get_matchit_routes(&self) -> Option<Vec<String>> {
+        None
+    }
+
     fn clone_box(&self) -> Box<dyn Matcher>;
 }
 
@@ -110,6 +118,13 @@ impl Matcher for PathMatcher {
         req.uri.path() == self.path
     }
 
+    fn get_matchit_routes(&self) -> Option<Vec<String>> {
+        if self.path.contains('{') || self.path.contains('}') || self.path.contains('*') {
+            return None;
+        }
+        Some(vec![self.path.clone()])
+    }
+
     fn clone_box(&self) -> Box<dyn Matcher> {
         Box::new(PathMatcher {
             path: self.path.clone(),
@@ -144,6 +159,17 @@ impl Matcher for PathPrefixMatcher {
     #[inline]
     fn matches(&self, req: &RequestHeader) -> bool {
         req.uri.path().starts_with(&self.prefix)
+    }
+
+    fn get_matchit_routes(&self) -> Option<Vec<String>> {
+        if self.prefix.contains('{') || self.prefix.contains('}') || self.prefix.contains('*') {
+            return None;
+        }
+        let mut prefix = self.prefix.clone();
+        if prefix.ends_with('/') {
+            prefix.pop();
+        }
+        Some(vec![format!("{}/{{*rest}}", prefix), self.prefix.clone()])
     }
 
     fn clone_box(&self) -> Box<dyn Matcher> {
@@ -259,6 +285,15 @@ impl Matcher for AndMatcher {
         (hosts, all_wildcards)
     }
 
+    fn get_matchit_routes(&self) -> Option<Vec<String>> {
+        for m in &self.matchers {
+            if let Some(paths) = m.get_matchit_routes() {
+                return Some(paths);
+            }
+        }
+        None
+    }
+
     fn clone_box(&self) -> Box<dyn Matcher> {
         Box::new(AndMatcher {
             matchers: self.matchers.iter().map(|m| m.clone_box()).collect(),
@@ -295,6 +330,22 @@ impl Matcher for OrMatcher {
             }
         }
         (hosts, any_wildcard)
+    }
+
+    fn get_matchit_routes(&self) -> Option<Vec<String>> {
+        let mut all_paths = Vec::new();
+        for m in &self.matchers {
+            if let Some(paths) = m.get_matchit_routes() {
+                all_paths.extend(paths);
+            } else {
+                return None; // If any part of OR is wildcard path, then the whole is wildcard path
+            }
+        }
+        if all_paths.is_empty() {
+            None
+        } else {
+            Some(all_paths)
+        }
     }
 
     fn clone_box(&self) -> Box<dyn Matcher> {

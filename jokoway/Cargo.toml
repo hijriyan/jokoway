@@ -37,6 +37,7 @@ tower_governor = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { workspace = true, optional = true }
+matchit = { workspace = true }
 
 [features]
 default = ["compress-extension", "api-extension", "acme-extension"]

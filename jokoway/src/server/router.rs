@@ -17,16 +17,22 @@ pub struct RouteMatch {
     pub res_transformer: Option<Arc<dyn ResponseTransformer>>,
 }
 
+pub struct RouteIndex {
+    pub path_router: matchit::Router<Vec<usize>>,
+    pub fallback_indices: Vec<usize>,
+    pub all_indices: Vec<usize>,
+}
+
 /// Router evaluates rules and transformers for request matching.
 /// Requires ServiceManager and UpstreamManager for initialization.
 pub struct Router {
     service_manager: Arc<ServiceManager>,
     upstream_manager: Arc<UpstreamManager>,
     /// Index of services key by Host header value.
-    /// Maps host string to list of service indices.
-    host_index: ArcSwap<HashMap<String, Vec<usize>>>,
-    /// List of service indices that must always be checked (wildcards, regex hosts, etc.)
-    catch_all_indices: ArcSwap<Vec<usize>>,
+    /// Maps host string to a RouteIndex.
+    host_index: ArcSwap<HashMap<String, Arc<RouteIndex>>>,
+    /// Catch-all index for services that match any host.
+    catch_all_index: ArcSwap<Arc<RouteIndex>>,
     /// Protocols this router handles (needed for refresh)
     protocols: Vec<ServiceProtocol>,
 }
@@ -37,13 +43,13 @@ impl Router {
         upstream_manager: Arc<UpstreamManager>,
         protocols: &[ServiceProtocol],
     ) -> Arc<Self> {
-        let (host_index, catch_all_indices) = Self::build_indices(&service_manager, protocols);
+        let (host_index, catch_all_index) = Self::build_indices(&service_manager, protocols);
 
         let router = Arc::new(Router {
             service_manager: service_manager.clone(),
             upstream_manager,
             host_index: ArcSwap::from_pointee(host_index),
-            catch_all_indices: ArcSwap::from_pointee(catch_all_indices),
+            catch_all_index: ArcSwap::from_pointee(catch_all_index),
             protocols: protocols.to_vec(),
         });
 
@@ -62,17 +68,23 @@ impl Router {
     fn build_indices(
         service_manager: &ServiceManager,
         protocols: &[ServiceProtocol],
-    ) -> (HashMap<String, Vec<usize>>, Vec<usize>) {
+    ) -> (HashMap<String, Arc<RouteIndex>>, Arc<RouteIndex>) {
         let service_indices = service_manager.get_indices_for_protocols(protocols);
         let all_services = service_manager.get_all();
 
-        let mut host_index: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut catch_all_indices = Vec::new();
+        let mut host_fallback: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut host_paths: HashMap<String, Vec<(String, usize)>> = HashMap::new();
 
-        for idx in service_indices {
+        let mut catch_all_fallback: Vec<usize> = Vec::new();
+        let mut catch_all_paths: Vec<(String, usize)> = Vec::new();
+
+        for &idx in &service_indices {
             let service = &all_services[idx];
             let mut service_has_wildcard = false;
             let mut service_hosts = std::collections::HashSet::new();
+
+            let mut service_paths = Vec::new();
+            let mut has_none_path = false;
 
             // Check if all routes have specific hosts
             for route in &service.routes {
@@ -82,29 +94,136 @@ impl Router {
                     service_has_wildcard = true;
                 }
                 service_hosts.extend(hosts);
+
+                if let Some(paths) = route.matcher.get_matchit_routes() {
+                    service_paths.extend(paths);
+                } else {
+                    has_none_path = true;
+                }
             }
 
-            if service_has_wildcard || service.routes.is_empty() {
-                catch_all_indices.push(idx);
+            let is_catch_all = service_has_wildcard || service.routes.is_empty();
+
+            if is_catch_all {
+                if has_none_path || service.routes.is_empty() {
+                    catch_all_fallback.push(idx);
+                } else {
+                    for p in &service_paths {
+                        catch_all_paths.push((p.clone(), idx));
+                    }
+                }
             }
 
             // ALWAYS add to specific host index if specific hosts are available,
             // even if the service is also a wildcard. This ensures O(1) lookup for the specific host leg.
             for host in service_hosts {
-                host_index.entry(host).or_default().push(idx);
+                if has_none_path || service.routes.is_empty() {
+                    host_fallback.entry(host).or_default().push(idx);
+                } else {
+                    for p in &service_paths {
+                        host_paths
+                            .entry(host.clone())
+                            .or_default()
+                            .push((p.clone(), idx));
+                    }
+                }
             }
         }
 
-        (host_index, catch_all_indices)
+        let mut host_index = HashMap::new();
+        let mut all_hosts = std::collections::HashSet::new();
+        all_hosts.extend(host_fallback.keys().cloned());
+        all_hosts.extend(host_paths.keys().cloned());
+
+        for host in all_hosts {
+            let fallback = host_fallback.remove(&host).unwrap_or_default();
+            let mut path_map: HashMap<String, Vec<usize>> = HashMap::new();
+
+            if let Some(paths) = host_paths.remove(&host) {
+                for (p, idx) in paths {
+                    path_map.entry(p).or_default().push(idx);
+                }
+            }
+
+            host_index.insert(host, Self::build_route_index(path_map, fallback));
+        }
+
+        let mut catch_all_path_map: HashMap<String, Vec<usize>> = HashMap::new();
+        for (p, idx) in catch_all_paths {
+            catch_all_path_map.entry(p).or_default().push(idx);
+        }
+        let catch_all_index = Self::build_route_index(catch_all_path_map, catch_all_fallback);
+
+        (host_index, catch_all_index)
+    }
+
+    fn build_route_index(
+        path_map: HashMap<String, Vec<usize>>,
+        mut fallback: Vec<usize>,
+    ) -> Arc<RouteIndex> {
+        let mut path_router = matchit::Router::new();
+        let mut all_indices = fallback.clone();
+
+        let mut final_path_map: HashMap<String, Vec<usize>> = HashMap::new();
+        for (path, indices) in &path_map {
+            let mut combined_indices = indices.clone();
+
+            for (other_path, other_indices) in &path_map {
+                if path == other_path {
+                    continue;
+                }
+
+                if let Some(prefix) = other_path.strip_suffix("/{*rest}") {
+                    let prefix_slash = format!("{}/", prefix);
+
+                    if path.starts_with(&prefix_slash) {
+                        combined_indices.extend(other_indices);
+                    }
+                }
+            }
+
+            combined_indices.sort_unstable();
+            combined_indices.dedup();
+            final_path_map.insert(path.clone(), combined_indices);
+        }
+
+        for (mut path, indices) in final_path_map {
+            if !path.starts_with('/') {
+                path = format!("/{}", path);
+            }
+
+            all_indices.extend(&indices);
+
+            if let Err(e) = path_router.insert(path.clone(), indices.clone()) {
+                log::warn!(
+                    "Failed to insert route '{}' into matchit: {}. Falling back to linear scan.",
+                    path,
+                    e
+                );
+                fallback.extend(indices);
+            }
+        }
+
+        fallback.sort_unstable();
+        fallback.dedup();
+
+        all_indices.sort_unstable();
+        all_indices.dedup();
+
+        Arc::new(RouteIndex {
+            path_router,
+            fallback_indices: fallback,
+            all_indices,
+        })
     }
 
     /// Refresh service indices based on current services and protocols
     pub fn refresh_indices(&self) {
-        let (host_index, catch_all_indices) =
+        let (host_index, catch_all_index) =
             Self::build_indices(&self.service_manager, &self.protocols);
 
         self.host_index.store(Arc::new(host_index));
-        self.catch_all_indices.store(Arc::new(catch_all_indices));
+        self.catch_all_index.store(Arc::new(catch_all_index));
         log::debug!("Router indices refreshed");
     }
 
@@ -120,8 +239,8 @@ impl Router {
 
             // Check URI host first (authoritative)
             if let Some(host) = uri_host
-                && let Some(indices) = host_index.get(host)
-                && let Some(m) = Self::find_route_in_indices(&all_services, indices, req_header)
+                && let Some(route_index) = host_index.get(host)
+                && let Some(m) = Self::find_in_route_index(&all_services, route_index, req_header)
             {
                 return Some(m);
             }
@@ -129,30 +248,62 @@ impl Router {
             // Check Host header if different from URI host
             if let Some(host) = header_host
                 && Some(host) != uri_host
-                && let Some(indices) = host_index.get(host)
-                && let Some(m) = Self::find_route_in_indices(&all_services, indices, req_header)
+                && let Some(route_index) = host_index.get(host)
+                && let Some(m) = Self::find_in_route_index(&all_services, route_index, req_header)
             {
                 return Some(m);
             }
         }
 
         // 2. Check catch-all services (wildcards, regex, etc.)
-        let catch_all_indices = self.catch_all_indices.load();
-        if catch_all_indices.is_empty() {
-            None
-        } else {
-            Self::find_route_in_indices(&all_services, &catch_all_indices, req_header)
-        }
+        let catch_all_index = self.catch_all_index.load();
+        Self::find_in_route_index(&all_services, &catch_all_index, req_header)
     }
 
     #[inline]
-    fn find_route_in_indices(
+    fn find_in_route_index(
         all_services: &[crate::server::service::RuntimeService],
-        indices: &[usize],
+        route_index: &RouteIndex,
         req_header: &RequestHeader,
     ) -> Option<RouteMatch> {
-        for &idx in indices {
-            if let Some(service) = all_services.get(idx) {
+        let path = req_header.uri.path();
+
+        let path_indices = if let Ok(matched) = route_index.path_router.at(path) {
+            matched.value.as_slice()
+        } else {
+            &[]
+        };
+
+        let fallback_indices = &route_index.fallback_indices;
+
+        // Merge evaluating step to preserve priority (lower index = higher priority)
+        let mut p_idx = 0;
+        let mut f_idx = 0;
+
+        while p_idx < path_indices.len() || f_idx < fallback_indices.len() {
+            let check_idx;
+
+            if p_idx < path_indices.len() && f_idx < fallback_indices.len() {
+                if path_indices[p_idx] < fallback_indices[f_idx] {
+                    check_idx = path_indices[p_idx];
+                    p_idx += 1;
+                } else if path_indices[p_idx] > fallback_indices[f_idx] {
+                    check_idx = fallback_indices[f_idx];
+                    f_idx += 1;
+                } else {
+                    check_idx = path_indices[p_idx];
+                    p_idx += 1;
+                    f_idx += 1;
+                }
+            } else if p_idx < path_indices.len() {
+                check_idx = path_indices[p_idx];
+                p_idx += 1;
+            } else {
+                check_idx = fallback_indices[f_idx];
+                f_idx += 1;
+            }
+
+            if let Some(service) = all_services.get(check_idx) {
                 for route in &service.routes {
                     if route.matcher.matches(req_header) {
                         return Some(RouteMatch {
@@ -164,6 +315,7 @@ impl Router {
                 }
             }
         }
+
         None
     }
 
@@ -286,12 +438,12 @@ mod tests {
 
     fn count_unique_services(router: &Router) -> usize {
         let mut unique_indices = std::collections::HashSet::new();
-        for indices in router.host_index.load().values() {
-            for &idx in indices {
+        for route_index in router.host_index.load().values() {
+            for &idx in &route_index.all_indices {
                 unique_indices.insert(idx);
             }
         }
-        for &idx in router.catch_all_indices.load().iter() {
+        for &idx in &router.catch_all_index.load().all_indices {
             unique_indices.insert(idx);
         }
         unique_indices.len()
@@ -539,6 +691,194 @@ mod tests {
         // service_b (Host b) -> Specific
         // service_complex_no_wild -> Specific (Host c, Host a)
         // Total catch-all should be 2.
-        assert_eq!(router.catch_all_indices.load().len(), 2);
+        assert_eq!(router.catch_all_index.load().all_indices.len(), 2);
+    }
+
+    #[test]
+    fn test_overlapping_route_regression() {
+        let services = vec![
+            Service {
+                name: "specific_post".to_string(),
+                host: "backend_1".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r1".to_string(),
+                    rule: "Host(`api.com`) && PathPrefix(`/api/users`) && Method(`POST`)"
+                        .to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "general_api".to_string(),
+                host: "backend_2".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r2".to_string(),
+                    rule: "Host(`api.com`) && PathPrefix(`/api`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+        ];
+
+        let config = JokowayConfig {
+            services: services.into_iter().map(Arc::new).collect(),
+            ..Default::default()
+        };
+        let app_ctx = AppCtx::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new(&config));
+        let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
+        let sm = Arc::new(ServiceManager::new(Arc::new(config)).unwrap());
+
+        let router = Router::new(sm, Arc::new(upstream_manager), &HTTP_PROTOCOLS);
+
+        // POST to /api/users should match specific
+        let mut req_post = RequestHeader::build("POST", b"/api/users/123", None).unwrap();
+        req_post.insert_header("Host", "api.com").unwrap();
+        let m_post = router
+            .match_request(&req_post)
+            .expect("POST /api/users should match");
+        assert_eq!(m_post.upstream_name.as_ref(), "backend_1");
+
+        // GET to /api/users should match general
+        let mut req_get = RequestHeader::build("GET", b"/api/users/123", None).unwrap();
+        req_get.insert_header("Host", "api.com").unwrap();
+        let m_get = router
+            .match_request(&req_get)
+            .expect("GET /api/users should fall back to general_api");
+        assert_eq!(m_get.upstream_name.as_ref(), "backend_2");
+    }
+
+    #[test]
+    fn test_complex_matchit_fallback_and_isolation() {
+        let services = vec![
+            Service {
+                name: "api_health".to_string(),
+                host: "backend_health".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r1".to_string(),
+                    rule: "Host(`api.com`) && Path(`/api/v1/health`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "api_v1_post".to_string(),
+                host: "backend_v1_post".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r2".to_string(),
+                    rule: "Host(`api.com`) && PathPrefix(`/api/v1`) && Method(`POST`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "api_regex_fallback".to_string(),
+                host: "backend_regex".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r4".to_string(),
+                    rule: "Host(`api.com`) && PathRegexp(`^/api/v[0-9]+/special$`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "api_general".to_string(),
+                host: "backend_general".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r3".to_string(),
+                    rule: "Host(`api.com`) && PathPrefix(`/api`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "api_test_env".to_string(),
+                host: "backend_test_env".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r5".to_string(),
+                    rule: "Host(`api.test.com`) && PathPrefix(`/api`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "catch_all_wildcard".to_string(),
+                host: "backend_wildcard".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r6".to_string(),
+                    rule: "PathPrefix(`/wildcard`)".to_string(),
+                    priority: None,
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+        ];
+
+        let config = JokowayConfig {
+            services: services.into_iter().map(Arc::new).collect(),
+            ..Default::default()
+        };
+        let app_ctx = AppCtx::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new(&config));
+        let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
+        let sm = Arc::new(ServiceManager::new(Arc::new(config)).unwrap());
+        let router = Router::new(sm, Arc::new(upstream_manager), &HTTP_PROTOCOLS);
+
+        // 1. Exact path match over prefix
+        let mut req = RequestHeader::build("GET", b"/api/v1/health", None).unwrap();
+        req.insert_header("Host", "api.com").unwrap();
+        let m = router.match_request(&req).expect("Should match health");
+        assert_eq!(m.upstream_name.as_ref(), "backend_health");
+
+        // 2. Prefix + Method matching
+        let mut req = RequestHeader::build("POST", b"/api/v1/users", None).unwrap();
+        req.insert_header("Host", "api.com").unwrap();
+        let m = router.match_request(&req).expect("Should match v1 post");
+        assert_eq!(m.upstream_name.as_ref(), "backend_v1_post");
+
+        // 3. Fallback to broader prefix when Method fails
+        let mut req = RequestHeader::build("GET", b"/api/v1/users", None).unwrap();
+        req.insert_header("Host", "api.com").unwrap();
+        let m = router
+            .match_request(&req)
+            .expect("Should fall back to general");
+        assert_eq!(m.upstream_name.as_ref(), "backend_general");
+
+        // 4. Regex fallback (skipped by matchit, matched by linear fallback_indices)
+        let mut req = RequestHeader::build("GET", b"/api/v2/special", None).unwrap();
+        req.insert_header("Host", "api.com").unwrap();
+        let m = router.match_request(&req).expect("Should match regex");
+        assert_eq!(m.upstream_name.as_ref(), "backend_regex");
+
+        // 5. Host isolation validation
+        let mut req = RequestHeader::build("GET", b"/api/v1/health", None).unwrap();
+        req.insert_header("Host", "api.test.com").unwrap();
+        let m = router
+            .match_request(&req)
+            .expect("Should match test env, not health exact match");
+        assert_eq!(m.upstream_name.as_ref(), "backend_test_env");
+
+        // 6. Catch-all validation
+        let mut req = RequestHeader::build("GET", b"/wildcard/foo", None).unwrap();
+        req.insert_header("Host", "random.com").unwrap();
+        let m = router.match_request(&req).expect("Should match wildcard");
+        assert_eq!(m.upstream_name.as_ref(), "backend_wildcard");
     }
 }
