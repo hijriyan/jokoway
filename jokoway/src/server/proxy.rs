@@ -156,6 +156,7 @@ pub struct JokowayProxy {
     pub websocket_middlewares: Arc<Vec<Arc<dyn WebsocketMiddlewareDyn>>>,
     pub app_ctx: Arc<AppCtx>,
     pub upstream_manager: Arc<UpstreamManager>,
+    pub is_tls: bool,
 }
 
 impl JokowayProxy {
@@ -164,6 +165,7 @@ impl JokowayProxy {
         app_ctx: Arc<AppCtx>,
         http_middlewares: Vec<Arc<dyn HttpMiddlewareDyn>>,
         websocket_middlewares: Vec<Arc<dyn WebsocketMiddlewareDyn>>,
+        is_tls: bool,
     ) -> Result<Self, JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
@@ -179,6 +181,7 @@ impl JokowayProxy {
             websocket_middlewares: Arc::new(websocket_middlewares),
             app_ctx,
             upstream_manager,
+            is_tls,
         })
     }
 }
@@ -319,8 +322,15 @@ impl ProxyHttp for JokowayProxy {
             }
         }
 
+        let client_protocol = match (self.is_tls, is_upgrade) {
+            (false, false) => crate::config::models::ServiceProtocol::Http,
+            (false, true) => crate::config::models::ServiceProtocol::Ws,
+            (true, false) => crate::config::models::ServiceProtocol::Https,
+            (true, true) => crate::config::models::ServiceProtocol::Wss,
+        };
+
         // Route matching with early return
-        let match_result = self.router.match_request(req_header);
+        let match_result = self.router.match_request(req_header, client_protocol);
 
         if let Some(match_result) = match_result {
             log::debug!("Route matched: upstream={}", match_result.upstream_name);
@@ -889,8 +899,14 @@ mod tests {
         );
 
         // Create the proxy with load balancers
-        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), Vec::new())
-            .expect("Failed to create JokowayProxy");
+        let _proxy = JokowayProxy::new(
+            router,
+            Arc::new(app_ctx.clone()),
+            Vec::new(),
+            Vec::new(),
+            false,
+        )
+        .expect("Failed to create JokowayProxy");
 
         // Verify load balancer was created
         assert!(upstream_manager.get("test_upstream").is_some());
@@ -966,8 +982,14 @@ mod tests {
             // &config,
         );
 
-        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), Vec::new())
-            .expect("Failed to create JokowayProxy");
+        let _proxy = JokowayProxy::new(
+            router,
+            Arc::new(app_ctx.clone()),
+            Vec::new(),
+            Vec::new(),
+            false,
+        )
+        .expect("Failed to create JokowayProxy");
 
         let load_balancer = upstream_manager.get("test_upstream").unwrap();
 
@@ -1030,8 +1052,14 @@ mod tests {
             // &config,
         );
 
-        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), Vec::new())
-            .expect("Failed to create JokowayProxy");
+        let _proxy = JokowayProxy::new(
+            router,
+            Arc::new(app_ctx.clone()),
+            Vec::new(),
+            Vec::new(),
+            false,
+        )
+        .expect("Failed to create JokowayProxy");
 
         // Should not create load balancer for empty upstream
         assert!(upstream_manager.get("empty_upstream").is_none());

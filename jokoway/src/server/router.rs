@@ -227,7 +227,11 @@ impl Router {
         log::debug!("Router indices refreshed");
     }
 
-    pub fn match_request(&self, req_header: &RequestHeader) -> Option<RouteMatch> {
+    pub fn match_request(
+        &self,
+        req_header: &RequestHeader,
+        client_protocol: ServiceProtocol,
+    ) -> Option<RouteMatch> {
         let all_services = self.service_manager.get_all();
 
         // 1. Check indexed services by Host header or URI host
@@ -240,7 +244,12 @@ impl Router {
             // Check URI host first (authoritative)
             if let Some(host) = uri_host
                 && let Some(route_index) = host_index.get(host)
-                && let Some(m) = Self::find_in_route_index(&all_services, route_index, req_header)
+                && let Some(m) = Self::find_in_route_index(
+                    &all_services,
+                    route_index,
+                    req_header,
+                    &client_protocol,
+                )
             {
                 return Some(m);
             }
@@ -249,7 +258,12 @@ impl Router {
             if let Some(host) = header_host
                 && Some(host) != uri_host
                 && let Some(route_index) = host_index.get(host)
-                && let Some(m) = Self::find_in_route_index(&all_services, route_index, req_header)
+                && let Some(m) = Self::find_in_route_index(
+                    &all_services,
+                    route_index,
+                    req_header,
+                    &client_protocol,
+                )
             {
                 return Some(m);
             }
@@ -257,7 +271,12 @@ impl Router {
 
         // 2. Check catch-all services (wildcards, regex, etc.)
         let catch_all_index = self.catch_all_index.load();
-        Self::find_in_route_index(&all_services, &catch_all_index, req_header)
+        Self::find_in_route_index(
+            &all_services,
+            &catch_all_index,
+            req_header,
+            &client_protocol,
+        )
     }
 
     #[inline]
@@ -265,6 +284,7 @@ impl Router {
         all_services: &[crate::server::service::RuntimeService],
         route_index: &RouteIndex,
         req_header: &RequestHeader,
+        client_protocol: &ServiceProtocol,
     ) -> Option<RouteMatch> {
         let path = req_header.uri.path();
 
@@ -304,6 +324,10 @@ impl Router {
             }
 
             if let Some(service) = all_services.get(check_idx) {
+                if !service.protocols.is_empty() && !service.protocols.contains(client_protocol) {
+                    continue;
+                }
+
                 for route in &service.routes {
                     if route.matcher.matches(req_header) {
                         return Some(RouteMatch {
@@ -609,7 +633,7 @@ mod tests {
         let mut req_a = RequestHeader::build("GET", b"/", None).unwrap();
         req_a.insert_header("Host", "a.com").unwrap();
         let match_a = router
-            .match_request(&req_a)
+            .match_request(&req_a, ServiceProtocol::Http)
             .expect("Should match service_a");
         assert_eq!(match_a.upstream_name.as_ref(), "backend_a");
 
@@ -617,7 +641,7 @@ mod tests {
         let mut req_b = RequestHeader::build("GET", b"/foo", None).unwrap();
         req_b.insert_header("Host", "b.com").unwrap();
         let match_b = router
-            .match_request(&req_b)
+            .match_request(&req_b, ServiceProtocol::Http)
             .expect("Should match service_b");
         assert_eq!(match_b.upstream_name.as_ref(), "backend_b");
 
@@ -625,7 +649,7 @@ mod tests {
         let mut req_c1 = RequestHeader::build("GET", b"/anything", None).unwrap();
         req_c1.insert_header("Host", "c.com").unwrap();
         let match_c1 = router
-            .match_request(&req_c1)
+            .match_request(&req_c1, ServiceProtocol::Http)
             .expect("Should match service_hybrid by host");
         assert_eq!(match_c1.upstream_name.as_ref(), "backend_hybrid");
 
@@ -633,7 +657,7 @@ mod tests {
         let mut req_c2 = RequestHeader::build("GET", b"/c/foo", None).unwrap();
         req_c2.insert_header("Host", "other.com").unwrap();
         let match_c2 = router
-            .match_request(&req_c2)
+            .match_request(&req_c2, ServiceProtocol::Http)
             .expect("Should match service_hybrid by path (catch-all)");
         assert_eq!(match_c2.upstream_name.as_ref(), "backend_hybrid");
 
@@ -641,14 +665,14 @@ mod tests {
         let mut req_d = RequestHeader::build("GET", b"/wild/bar", None).unwrap();
         req_d.insert_header("Host", "random.com").unwrap();
         let match_d = router
-            .match_request(&req_d)
+            .match_request(&req_d, ServiceProtocol::Http)
             .expect("Should match service_wild");
         assert_eq!(match_d.upstream_name.as_ref(), "backend_wild");
 
         // Scenario E: No Match
         let mut req_e = RequestHeader::build("GET", b"/nomatch", None).unwrap();
         req_e.insert_header("Host", "other.com").unwrap();
-        let match_e = router.match_request(&req_e);
+        let match_e = router.match_request(&req_e, ServiceProtocol::Http);
         assert!(match_e.is_none());
 
         // Scenario F: Complex No-Wild Match
@@ -656,7 +680,7 @@ mod tests {
         let mut req_f1 = RequestHeader::build("GET", b"/anything", None).unwrap();
         req_f1.insert_header("Host", "c.com").unwrap();
         let match_f1 = router
-            .match_request(&req_f1)
+            .match_request(&req_f1, ServiceProtocol::Http)
             .expect("Should match complex rule via c.com");
 
         assert_eq!(match_f1.upstream_name.as_ref(), "backend_hybrid");
@@ -668,7 +692,7 @@ mod tests {
         // Rules: service_a matches "/c/foo" (Host matches).
         // So service_a will match first.
         let match_f2 = router
-            .match_request(&req_f2)
+            .match_request(&req_f2, ServiceProtocol::Http)
             .expect("Should match service_a");
         assert_eq!(match_f2.upstream_name.as_ref(), "backend_a");
 
@@ -680,7 +704,7 @@ mod tests {
         let mut req_f3 = RequestHeader::build("GET", b"/c/foo", None).unwrap();
         req_f3.insert_header("Host", "other.com").unwrap();
         let match_f3 = router
-            .match_request(&req_f3)
+            .match_request(&req_f3, ServiceProtocol::Http)
             .expect("Should match service_hybrid (catch-all)");
         assert_eq!(match_f3.upstream_name.as_ref(), "backend_hybrid");
 
@@ -740,7 +764,7 @@ mod tests {
         let mut req_post = RequestHeader::build("POST", b"/api/users/123", None).unwrap();
         req_post.insert_header("Host", "api.com").unwrap();
         let m_post = router
-            .match_request(&req_post)
+            .match_request(&req_post, ServiceProtocol::Http)
             .expect("POST /api/users should match");
         assert_eq!(m_post.upstream_name.as_ref(), "backend_1");
 
@@ -748,7 +772,7 @@ mod tests {
         let mut req_get = RequestHeader::build("GET", b"/api/users/123", None).unwrap();
         req_get.insert_header("Host", "api.com").unwrap();
         let m_get = router
-            .match_request(&req_get)
+            .match_request(&req_get, ServiceProtocol::Http)
             .expect("GET /api/users should fall back to general_api");
         assert_eq!(m_get.upstream_name.as_ref(), "backend_2");
     }
@@ -844,41 +868,110 @@ mod tests {
         // 1. Exact path match over prefix
         let mut req = RequestHeader::build("GET", b"/api/v1/health", None).unwrap();
         req.insert_header("Host", "api.com").unwrap();
-        let m = router.match_request(&req).expect("Should match health");
+        let m = router
+            .match_request(&req, ServiceProtocol::Http)
+            .expect("Should match health");
         assert_eq!(m.upstream_name.as_ref(), "backend_health");
 
         // 2. Prefix + Method matching
         let mut req = RequestHeader::build("POST", b"/api/v1/users", None).unwrap();
         req.insert_header("Host", "api.com").unwrap();
-        let m = router.match_request(&req).expect("Should match v1 post");
+        let m = router
+            .match_request(&req, ServiceProtocol::Http)
+            .expect("Should match v1 post");
         assert_eq!(m.upstream_name.as_ref(), "backend_v1_post");
 
         // 3. Fallback to broader prefix when Method fails
         let mut req = RequestHeader::build("GET", b"/api/v1/users", None).unwrap();
         req.insert_header("Host", "api.com").unwrap();
         let m = router
-            .match_request(&req)
+            .match_request(&req, ServiceProtocol::Http)
             .expect("Should fall back to general");
         assert_eq!(m.upstream_name.as_ref(), "backend_general");
 
         // 4. Regex fallback (skipped by matchit, matched by linear fallback_indices)
         let mut req = RequestHeader::build("GET", b"/api/v2/special", None).unwrap();
         req.insert_header("Host", "api.com").unwrap();
-        let m = router.match_request(&req).expect("Should match regex");
+        let m = router
+            .match_request(&req, ServiceProtocol::Http)
+            .expect("Should match regex");
         assert_eq!(m.upstream_name.as_ref(), "backend_regex");
 
         // 5. Host isolation validation
         let mut req = RequestHeader::build("GET", b"/api/v1/health", None).unwrap();
         req.insert_header("Host", "api.test.com").unwrap();
         let m = router
-            .match_request(&req)
+            .match_request(&req, ServiceProtocol::Http)
             .expect("Should match test env, not health exact match");
         assert_eq!(m.upstream_name.as_ref(), "backend_test_env");
 
         // 6. Catch-all validation
         let mut req = RequestHeader::build("GET", b"/wildcard/foo", None).unwrap();
         req.insert_header("Host", "random.com").unwrap();
-        let m = router.match_request(&req).expect("Should match wildcard");
+        let m = router
+            .match_request(&req, ServiceProtocol::Http)
+            .expect("Should match wildcard");
         assert_eq!(m.upstream_name.as_ref(), "backend_wildcard");
+    }
+
+    #[test]
+    fn test_dynamic_protocol_rejection() {
+        let services = vec![
+            Service {
+                name: "ws_only".to_string(),
+                host: "backend_ws".to_string(),
+                protocols: vec![ServiceProtocol::Ws],
+                routes: vec![Route {
+                    name: "r1".to_string(),
+                    rule: "Host(`ws.com`)".to_string(),
+                    priority: Some(10),
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+            Service {
+                name: "http_fallback".to_string(),
+                host: "backend_http".to_string(),
+                protocols: vec![ServiceProtocol::Http],
+                routes: vec![Route {
+                    name: "r2".to_string(),
+                    rule: "Host(`ws.com`)".to_string(),
+                    priority: Some(5),
+                    request_transformer: None,
+                    response_transformer: None,
+                }],
+            },
+        ];
+
+        let config = JokowayConfig {
+            services: services.into_iter().map(Arc::new).collect(),
+            ..Default::default()
+        };
+        let app_ctx = AppCtx::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new(&config));
+        let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
+        let sm = Arc::new(ServiceManager::new(Arc::new(config)).unwrap());
+
+        let router = Router::new(sm, Arc::new(upstream_manager), &ALL_PROTOCOLS);
+
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        req.insert_header("Host", "ws.com").unwrap();
+
+        // 1. If client is HTTP, it should reject ws_only and fallback to http_fallback
+        let match_http = router
+            .match_request(&req, ServiceProtocol::Http)
+            .expect("Should fallback to HTTP service");
+        assert_eq!(match_http.upstream_name.as_ref(), "backend_http");
+
+        // 2. If client is WS, it should match ws_only
+        let match_ws = router
+            .match_request(&req, ServiceProtocol::Ws)
+            .expect("Should match WS service");
+        assert_eq!(match_ws.upstream_name.as_ref(), "backend_ws");
+
+        // 3. If client is HTTPS, it should reject both
+        let match_https = router.match_request(&req, ServiceProtocol::Https);
+        assert!(match_https.is_none());
     }
 }

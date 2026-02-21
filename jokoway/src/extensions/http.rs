@@ -44,6 +44,7 @@ impl JokowayExtension for HttpExtension {
             Arc::new(app_ctx.clone()),
             http_middlewares.clone(),
             websocket_middlewares.clone(),
+            false,
         )?;
 
         let mut http_service = http_proxy_service(&server.configuration, proxy);

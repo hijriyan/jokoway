@@ -97,6 +97,7 @@ impl JokowayExtension for HttpsExtension {
             Arc::new(app_ctx.clone()),
             http_middlewares.clone(),
             websocket_middlewares.clone(),
+            true,
         )?;
 
         if let Some(ssl) = &config.ssl {
