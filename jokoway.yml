@@ -77,14 +77,8 @@ x-ssl-settings: &ssl_settings # Path to CA certificate file
 
   # Custom cipher suites configuration
   cipher_suites:
-    # TLS <= 1.2 cipher suites
-    tls12:
-      - "ECDHE-ECDSA-AES128-GCM-SHA256"
-      - "ECDHE-RSA-AES128-GCM-SHA256"
-    # TLS >= 1.3 cipher suites
-    tls13:
-      - "TLS_AES_128_GCM_SHA256"
-      - "TLS_AES_256_GCM_SHA384"
+    - "ECDHE-ECDSA-AES128-GCM-SHA256"
+    - "ECDHE-RSA-AES128-GCM-SHA256"
 
 # --- Jokoway Core Configuration ---
 jokoway:

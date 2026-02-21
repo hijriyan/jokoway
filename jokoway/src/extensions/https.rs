@@ -368,23 +368,12 @@ impl JokowayExtension for HttpsExtension {
                     e
                 ))));
             }
-
             if let Some(ciphers) = &ssl.cipher_suites {
-                if let Some(tls12) = &ciphers.tls12
-                    && let Err(e) = ssl_acceptor.set_cipher_list(&tls12.join(":"))
-                {
-                    log::error!("Failed to set TLS1.2 ciphers: {}", e);
+                let ciphers_str = ciphers.join(":");
+                if let Err(e) = ssl_acceptor.set_cipher_list(&ciphers_str) {
+                    log::error!("Failed to set cipher suites: {}", e);
                     return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set TLS1.2 ciphers: {}",
-                        e
-                    ))));
-                }
-                if let Some(tls13) = &ciphers.tls13
-                    && let Err(e) = ssl_acceptor.set_cipher_list(&tls13.join(":"))
-                {
-                    log::error!("Failed to set TLS1.3 ciphersuites: {}", e);
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set TLS1.3 ciphersuites: {}",
+                        "Failed to set cipher suites: {}",
                         e
                     ))));
                 }

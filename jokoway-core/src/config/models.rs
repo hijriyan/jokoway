@@ -99,14 +99,7 @@ pub struct SslSettings {
     pub sans: Option<Vec<String>>,
     pub ssl_min_version: Option<String>,
     pub ssl_max_version: Option<String>,
-    pub cipher_suites: Option<CipherSuites>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(deny_unknown_fields)]
-pub struct CipherSuites {
-    pub tls12: Option<Vec<String>>,
-    pub tls13: Option<Vec<String>>,
+    pub cipher_suites: Option<Vec<String>>,
 }
 
 fn default_openapi_title() -> String {
