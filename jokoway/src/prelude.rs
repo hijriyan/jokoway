@@ -4,7 +4,7 @@
 //! to make it easier to get started with `jokoway`.
 
 pub use crate::error::JokowayError;
-pub use crate::server::context::{AppCtx, RouteContext};
+pub use crate::server::context::{Context, ProxyContext};
 pub use crate::server::proxy::JokowayProxy;
 #[cfg(feature = "acme-extension")]
 pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};

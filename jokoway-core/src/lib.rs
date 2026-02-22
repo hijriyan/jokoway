@@ -20,11 +20,11 @@ use std::sync::Arc;
 
 /// Core application context shared across extensions and middlewares
 #[derive(Clone)]
-pub struct AppCtx {
+pub struct Context {
     data: Arc<ArcSwap<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
-impl AppCtx {
+impl Context {
     pub fn new() -> Self {
         Self {
             data: Arc::new(ArcSwap::from_pointee(HashMap::new())),
@@ -57,7 +57,7 @@ impl AppCtx {
     }
 }
 
-impl Default for AppCtx {
+impl Default for Context {
     fn default() -> Self {
         Self::new()
     }
@@ -94,7 +94,7 @@ pub trait HttpMiddleware: Send + Sync {
         &self,
         _session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &AppCtx,
+        _app_ctx: &Context,
     ) -> Result<bool, Box<Error>> {
         Ok(false)
     }
@@ -105,7 +105,7 @@ pub trait HttpMiddleware: Send + Sync {
         _session: &mut Session,
         _upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
-        _app_ctx: &AppCtx,
+        _app_ctx: &Context,
     ) -> Result<(), Box<Error>> {
         Ok(())
     }
@@ -156,7 +156,7 @@ pub trait HttpMiddlewareDyn: Send + Sync {
         &self,
         session: &mut Session,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &AppCtx,
+        app_ctx: &Context,
     ) -> Result<bool, Box<Error>>;
 
     async fn upstream_response_filter_dyn(
@@ -164,7 +164,7 @@ pub trait HttpMiddlewareDyn: Send + Sync {
         session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &AppCtx,
+        app_ctx: &Context,
     ) -> Result<(), Box<Error>>;
 
     fn response_body_filter_dyn(
@@ -203,7 +203,7 @@ impl<T: HttpMiddleware> HttpMiddlewareDyn for T {
         &self,
         session: &mut Session,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &AppCtx,
+        app_ctx: &Context,
     ) -> Result<bool, Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
@@ -216,7 +216,7 @@ impl<T: HttpMiddleware> HttpMiddlewareDyn for T {
         session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &AppCtx,
+        app_ctx: &Context,
     ) -> Result<(), Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
@@ -268,11 +268,11 @@ pub trait JokowayExtension: Send + Sync {
     /// Called during server bootstrap to add background services etc.
     ///
     /// Note: This uses `dyn Any` for app_ctx to avoid circular dependencies.
-    /// Extensions should downcast to the concrete AppCtx type.
+    /// Extensions should downcast to the concrete Context type.
     fn init(
         &self,
         _server: &mut Server,
-        _app_ctx: &mut AppCtx,
+        _app_ctx: &mut Context,
         _http_middlewares: &mut Vec<Arc<dyn HttpMiddlewareDyn>>,
         _websocket_middlewares: &mut Vec<Arc<dyn crate::websocket::WebsocketMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -8,7 +8,7 @@ use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamExtension;
 #[cfg(feature = "acme-extension")]
 use jokoway_acme::{AcmeConfigExt, AcmeExtension};
-use jokoway_core::AppCtx;
+use jokoway_core::Context;
 use pingora::server::Server;
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ pub struct App {
     pub server_conf: Option<ServerConf>,
     pub opt: Opt,
     pub extensions: Vec<Box<dyn JokowayExtension>>,
-    pub app_ctx: AppCtx,
+    pub app_ctx: Context,
 }
 
 impl App {
@@ -34,11 +34,11 @@ impl App {
             server_conf,
             opt,
             extensions: custom_extensions,
-            app_ctx: AppCtx::new(),
+            app_ctx: Context::new(),
         };
 
         // Register ACME extension if configured
-        // Must be added before HttpsExtension so HttpsExtension can find AcmeManager in AppCtx
+        // Must be added before HttpsExtension so HttpsExtension can find AcmeManager in Context
         #[cfg(feature = "acme-extension")]
         if let Some(acme_settings) = app.config.acme() {
             let acme_ext = AcmeExtension::new(&acme_settings);
@@ -99,7 +99,7 @@ impl App {
         self.extensions.push(Box::new(extension));
     }
 
-    pub fn app_ctx(&self) -> &AppCtx {
+    pub fn app_ctx(&self) -> &Context {
         &self.app_ctx
     }
 
@@ -111,7 +111,7 @@ impl App {
 
         let config_arc = Arc::new(self.config.clone());
 
-        // Share resources via AppCtx for extensions to use
+        // Share resources via Context for extensions to use
         app_ctx.insert(self.config.clone());
 
         // Initialize TLS Callback support
@@ -345,7 +345,7 @@ mod tests {
             fn init(
                 &self,
                 _server: &mut pingora::server::Server,
-                _app_ctx: &mut AppCtx,
+                _app_ctx: &mut Context,
                 http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
                 _websocket_middlewares: &mut Vec<
                     std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
@@ -367,7 +367,7 @@ mod tests {
             fn init(
                 &self,
                 _server: &mut pingora::server::Server,
-                _app_ctx: &mut AppCtx,
+                _app_ctx: &mut Context,
                 http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
                 _websocket_middlewares: &mut Vec<
                     std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,

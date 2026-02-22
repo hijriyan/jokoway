@@ -271,13 +271,13 @@ impl JokowayExtension for CompressExtension {
     fn init(
         &self,
         _server: &mut Server,
-        _app_ctx: &mut jokoway_core::AppCtx,
+        _app_ctx: &mut jokoway_core::Context,
         http_middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::HttpMiddlewareDyn>>,
         _websocket_middlewares: &mut Vec<
             std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
         >,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // We don't really need AppCtx here for compression, but we keep the signature consistent
+        // We don't really need Context here for compression, but we keep the signature consistent
         let _ = _app_ctx;
         log::info!(
             "Compress extension initialized with config: {:?}",
@@ -568,7 +568,7 @@ impl HttpMiddleware for CompressMiddleware {
         &self,
         session: &mut Session,
         ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::AppCtx,
+        _app_ctx: &jokoway_core::Context,
     ) -> Result<bool, Box<Error>> {
         let req_header = session.req_header_mut();
 
@@ -589,7 +589,7 @@ impl HttpMiddleware for CompressMiddleware {
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::AppCtx,
+        _app_ctx: &jokoway_core::Context,
     ) -> Result<(), Box<Error>> {
         if let Some(algo) = ctx.compression_algo {
             // Check if response is already compressed (shouldn't be if we removed Accept-Encoding, but upstream might force it)

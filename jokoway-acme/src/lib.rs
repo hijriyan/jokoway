@@ -703,7 +703,7 @@ impl HttpMiddleware for AcmeMiddleware {
         &self,
         session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::AppCtx,
+        _app_ctx: &jokoway_core::Context,
     ) -> Result<bool, Box<Error>> {
         let path = session.req_header().uri.path();
         if path.starts_with("/.well-known/acme-challenge/") {
@@ -730,7 +730,7 @@ impl JokowayExtension for AcmeExtension {
     fn init(
         &self,
         server: &mut Server,
-        app_ctx: &mut jokoway_core::AppCtx,
+        app_ctx: &mut jokoway_core::Context,
         http_middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::HttpMiddlewareDyn>>,
         _websocket_middlewares: &mut Vec<
             std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
@@ -749,7 +749,7 @@ impl JokowayExtension for AcmeExtension {
         if let Some(tls_callback) = app_ctx.get::<jokoway_core::tls::TlsCallback>() {
             let config = app_ctx
                 .get::<jokoway_core::config::models::JokowayConfig>()
-                .ok_or("JokowayConfig not found in AppCtx")?;
+                .ok_or("JokowayConfig not found in Context")?;
 
             let handler =
                 crate::tls::AcmeTlsHandler::new(self.acme_manager.clone(), (*config).clone());

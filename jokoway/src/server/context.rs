@@ -2,11 +2,11 @@ use jokoway_transformer::{RequestTransformer, ResponseTransformer};
 
 use bytes::BytesMut;
 use flate2::Decompress;
-pub use jokoway_core::AppCtx;
+pub use jokoway_core::Context;
 use std::any::Any;
 use std::sync::Arc;
 
-pub struct RouteContext {
+pub struct ProxyContext {
     pub upstream_name: Option<Arc<str>>,
     pub response_transformer: Option<Arc<dyn ResponseTransformer>>,
     pub req_transformer: Option<Arc<dyn RequestTransformer>>,
@@ -20,10 +20,11 @@ pub struct RouteContext {
 
     pub middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
     pub websocket_middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
+    pub shared_ctx: Context,
 }
 
-impl RouteContext {
-    /// Create a new RouteContext with optimized buffer sizes
+impl ProxyContext {
+    /// Create a new ProxyContext with optimized buffer sizes
     pub fn new() -> Self {
         Self {
             upstream_name: None,
@@ -40,6 +41,7 @@ impl RouteContext {
 
             middleware_ctx: Vec::new(),
             websocket_middleware_ctx: Vec::new(),
+            shared_ctx: Context::new(),
         }
     }
 
@@ -50,7 +52,7 @@ impl RouteContext {
     }
 }
 
-impl Default for RouteContext {
+impl Default for ProxyContext {
     fn default() -> Self {
         Self::new()
     }
@@ -58,11 +60,11 @@ impl Default for RouteContext {
 
 #[cfg(test)]
 mod tests {
-    use super::AppCtx;
+    use super::Context;
 
     #[test]
     fn app_ctx_insert_get_remove() {
-        let ctx = AppCtx::new();
+        let ctx = Context::new();
 
         assert!(ctx.get::<usize>().is_none());
         ctx.insert(12usize);
@@ -78,7 +80,7 @@ mod tests {
 
     #[test]
     fn app_ctx_handles_multiple_types() {
-        let ctx = AppCtx::new();
+        let ctx = Context::new();
 
         ctx.insert(10usize);
         ctx.insert("jokoway".to_string());
@@ -89,7 +91,7 @@ mod tests {
 
     #[test]
     fn app_ctx_remove_missing_returns_none() {
-        let ctx = AppCtx::new();
+        let ctx = Context::new();
         assert!(ctx.remove::<u64>().is_none());
     }
 
@@ -101,7 +103,7 @@ mod tests {
 
     #[test]
     fn app_ctx_store_custom_struct() {
-        let ctx = AppCtx::new();
+        let ctx = Context::new();
         let data = CustomData {
             id: 7,
             label: "alpha".to_string(),

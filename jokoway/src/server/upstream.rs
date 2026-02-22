@@ -2,7 +2,7 @@ use crate::config::models::JokowayConfig;
 use crate::error::JokowayError;
 use crate::extensions::dns::DnsResolver;
 use crate::prelude::*;
-use crate::server::context::AppCtx;
+use crate::server::context::Context;
 use crate::server::discovery::JokowayUpstreamDiscovery;
 use crate::server::proxy::{CachedPeerConfig, merge_peer_options};
 use arc_swap::ArcSwap;
@@ -193,13 +193,13 @@ pub struct UpstreamManager {
 }
 
 impl UpstreamManager {
-    pub fn new(app_ctx: &AppCtx) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
+    pub fn new(app_ctx: &Context) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
-            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in AppCtx".into()))?;
+            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".into()))?;
         let dns_resolver = app_ctx
             .get::<DnsResolver>()
-            .ok_or_else(|| JokowayError::Upstream("DnsResolver not found in AppCtx".into()))?;
+            .ok_or_else(|| JokowayError::Upstream("DnsResolver not found in Context".into()))?;
 
         let mut load_balancers = HashMap::with_capacity(config.upstreams.len());
         let mut services: Vec<LbBackgroundService> = Vec::with_capacity(config.upstreams.len());
@@ -402,7 +402,7 @@ impl JokowayExtension for UpstreamExtension {
     fn init(
         &self,
         server: &mut pingora::server::Server,
-        app_ctx: &mut AppCtx,
+        app_ctx: &mut Context,
         _http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
         _websocket_middlewares: &mut Vec<
             std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
@@ -506,7 +506,7 @@ mod tests {
             ..Default::default()
         };
 
-        let app_ctx = AppCtx::new();
+        let app_ctx = Context::new();
         app_ctx.insert(config.clone());
         // Use mock resolver to avoid network dependency and speed up tests
         let mut ips = std::collections::HashMap::new();

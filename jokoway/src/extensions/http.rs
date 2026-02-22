@@ -1,6 +1,6 @@
 use crate::config::models::JokowayConfig;
 use crate::prelude::*;
-use crate::server::context::AppCtx;
+use crate::server::context::Context;
 use crate::server::proxy::JokowayProxy;
 use crate::server::router::{HTTP_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
@@ -17,19 +17,19 @@ impl JokowayExtension for HttpExtension {
     fn init(
         &self,
         server: &mut Server,
-        app_ctx: &mut AppCtx,
+        app_ctx: &mut Context,
         http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
         websocket_middlewares: &mut Vec<std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = app_ctx
             .get::<JokowayConfig>()
-            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in AppCtx".to_string()))?;
+            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".to_string()))?;
 
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
-            JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
+            JokowayError::Config("UpstreamManager not found in Context".to_string())
         })?;
         let service_manager = app_ctx.get::<ServiceManager>().ok_or_else(|| {
-            JokowayError::Config("ServiceManager not found in AppCtx".to_string())
+            JokowayError::Config("ServiceManager not found in Context".to_string())
         })?;
 
         let router = Router::new(

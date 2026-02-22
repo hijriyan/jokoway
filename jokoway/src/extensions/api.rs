@@ -1,7 +1,7 @@
 use crate::config::models::{ApiSettings, Service, ServiceProtocol, Upstream};
 use crate::extensions::dns::DnsResolver;
 use crate::prelude::*;
-use crate::server::context::AppCtx;
+use crate::server::context::Context;
 use crate::server::service::{RuntimeService, ServiceManager};
 use crate::server::upstream::UpstreamManager;
 use async_trait::async_trait;
@@ -186,12 +186,12 @@ impl utoipa::Modify for SecurityAddon {
 
 #[derive(Clone)]
 struct ApiState {
-    app_ctx: Arc<AppCtx>,
+    app_ctx: Arc<Context>,
 }
 
 struct ApiService {
     settings: ApiSettings,
-    app_ctx: Arc<AppCtx>,
+    app_ctx: Arc<Context>,
 }
 
 #[async_trait]
@@ -288,7 +288,7 @@ impl JokowayExtension for ApiExtension {
     fn init(
         &self,
         server: &mut pingora::server::Server,
-        app_ctx: &mut jokoway_core::AppCtx,
+        app_ctx: &mut jokoway_core::Context,
         _http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
         _websocket_middlewares: &mut Vec<
             std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,

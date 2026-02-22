@@ -5,7 +5,7 @@ use jokoway::config::models::{
 
 use jokoway::prelude::*;
 use jokoway::server::app::App;
-use jokoway::server::context::AppCtx;
+use jokoway::server::context::Context;
 use pingora::proxy::Session;
 use pingora::server::configuration::Opt;
 use reqwest::Client;
@@ -38,7 +38,7 @@ impl HttpMiddleware for TestHttpMiddleware {
         &self,
         session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &AppCtx,
+        _app_ctx: &Context,
     ) -> Result<bool, Box<pingora::Error>> {
         session
             .req_header_mut()
@@ -87,7 +87,7 @@ impl JokowayExtension for ConfigurableTestExtension {
     fn init(
         &self,
         _server: &mut pingora::server::Server,
-        _app_ctx: &mut AppCtx,
+        _app_ctx: &mut Context,
         http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
         websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -367,7 +367,7 @@ fn test_remove_middleware() {
             &self,
             _session: &mut Session,
             _ctx: &mut Self::CTX,
-            _app_ctx: &AppCtx,
+            _app_ctx: &Context,
         ) -> Result<bool, Box<pingora::Error>> {
             Ok(false)
         }
@@ -385,7 +385,7 @@ fn test_remove_middleware() {
             &self,
             _session: &mut Session,
             _ctx: &mut Self::CTX,
-            _app_ctx: &AppCtx,
+            _app_ctx: &Context,
         ) -> Result<bool, Box<pingora::Error>> {
             Ok(false)
         }
@@ -398,7 +398,7 @@ fn test_remove_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut AppCtx,
+            _app_ctx: &mut Context,
             http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
             _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -412,7 +412,7 @@ fn test_remove_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut AppCtx,
+            _app_ctx: &mut Context,
             http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
             _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -435,7 +435,7 @@ fn test_remove_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut AppCtx,
+            _app_ctx: &mut Context,
             http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
             _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -496,7 +496,7 @@ impl HttpMiddleware for ElapsedTimeMiddleware {
         &self,
         _session: &mut Session,
         ctx: &mut Self::CTX,
-        _app_ctx: &AppCtx,
+        _app_ctx: &Context,
     ) -> Result<bool, Box<pingora::Error>> {
         ctx.start_time = Some(std::time::Instant::now());
         Ok(false)
@@ -577,7 +577,7 @@ async fn test_elapsed_time_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut AppCtx,
+            _app_ctx: &mut Context,
             http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
             _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

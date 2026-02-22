@@ -2,7 +2,7 @@ use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions};
 use crate::error::JokowayError;
 
 use crate::prelude::*;
-use crate::server::context::{AppCtx, RouteContext};
+use crate::server::context::{Context, ProxyContext};
 use crate::server::router::Router;
 use crate::server::upstream::UpstreamManager;
 use async_trait::async_trait;
@@ -154,7 +154,7 @@ pub struct JokowayProxy {
     pub router: Arc<Router>,
     pub http_middlewares: Arc<Vec<Arc<dyn HttpMiddlewareDyn>>>,
     pub websocket_middlewares: Arc<Vec<Arc<dyn WebsocketMiddlewareDyn>>>,
-    pub app_ctx: Arc<AppCtx>,
+    pub app_ctx: Arc<Context>,
     pub upstream_manager: Arc<UpstreamManager>,
     pub is_tls: bool,
 }
@@ -162,17 +162,17 @@ pub struct JokowayProxy {
 impl JokowayProxy {
     pub fn new(
         router: Arc<Router>,
-        app_ctx: Arc<AppCtx>,
+        app_ctx: Arc<Context>,
         http_middlewares: Vec<Arc<dyn HttpMiddlewareDyn>>,
         websocket_middlewares: Vec<Arc<dyn WebsocketMiddlewareDyn>>,
         is_tls: bool,
     ) -> Result<Self, JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
-            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in AppCtx".to_string()))?;
+            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".to_string()))?;
 
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
-            JokowayError::Config("UpstreamManager not found in AppCtx".to_string())
+            JokowayError::Config("UpstreamManager not found in Context".to_string())
         })?;
         Ok(JokowayProxy {
             config,
@@ -256,9 +256,9 @@ fn load_client_cert_key(
 
 #[async_trait]
 impl ProxyHttp for JokowayProxy {
-    type CTX = RouteContext;
+    type CTX = ProxyContext;
     fn new_ctx(&self) -> Self::CTX {
-        RouteContext::new()
+        ProxyContext::new()
     }
 
     async fn early_request_filter(
@@ -767,7 +767,7 @@ mod tests {
     use super::*;
     use crate::config::models::{JokowayConfig, Upstream, UpstreamServer};
     use crate::extensions::dns::DnsResolver;
-    use crate::server::context::AppCtx;
+    use crate::server::context::Context;
     use crate::server::router::{ALL_PROTOCOLS, Router};
     use crate::server::service::ServiceManager;
     use crate::server::upstream::UpstreamManager;
@@ -880,7 +880,7 @@ mod tests {
             ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
         );
 
-        let app_ctx = AppCtx::new();
+        let app_ctx = Context::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
 
@@ -965,7 +965,7 @@ mod tests {
             ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
         );
 
-        let app_ctx = AppCtx::new();
+        let app_ctx = Context::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
 
@@ -1036,7 +1036,7 @@ mod tests {
             ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
         );
 
-        let app_ctx = AppCtx::new();
+        let app_ctx = Context::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
 

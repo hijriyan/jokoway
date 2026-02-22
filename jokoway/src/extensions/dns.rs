@@ -1,6 +1,6 @@
 use crate::config::models::JokowayConfig;
 use crate::prelude::*;
-use crate::server::context::AppCtx;
+use crate::server::context::Context;
 use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::config::{
     LookupIpStrategy, NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
@@ -173,7 +173,7 @@ impl JokowayExtension for DnsExtension {
     fn init(
         &self,
         _server: &mut pingora::server::Server,
-        app_ctx: &mut AppCtx,
+        app_ctx: &mut Context,
         _http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
         _websocket_middlewares: &mut Vec<
             std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
@@ -184,7 +184,7 @@ impl JokowayExtension for DnsExtension {
             app_ctx.insert(resolver);
             log::info!("DNS Resolver initialized");
         } else {
-            log::warn!("JokowayConfig not found in AppCtx during DnsExtension init");
+            log::warn!("JokowayConfig not found in Context during DnsExtension init");
         }
         Ok(())
     }

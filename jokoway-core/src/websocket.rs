@@ -314,7 +314,7 @@ pub enum WebsocketMessageAction {
     Close(Option<Vec<u8>>),
 }
 
-use crate::AppCtx;
+use crate::Context;
 use async_trait::async_trait;
 use pingora::Error;
 use pingora::proxy::Session;
@@ -346,7 +346,7 @@ pub trait WebsocketMiddleware: Send + Sync {
         &self,
         _session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &AppCtx,
+        _app_ctx: &Context,
     ) -> Result<bool, Box<Error>> {
         Ok(false)
     }
@@ -383,7 +383,7 @@ pub trait WebsocketMiddlewareDyn: Send + Sync {
         &self,
         session: &mut Session,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &AppCtx,
+        app_ctx: &Context,
     ) -> Result<bool, Box<Error>>;
 
     fn on_message_dyn(
@@ -420,7 +420,7 @@ impl<T: WebsocketMiddleware> WebsocketMiddlewareDyn for T {
         &self,
         session: &mut Session,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &AppCtx,
+        app_ctx: &Context,
     ) -> Result<bool, Box<Error>> {
         let ctx = ctx
             .downcast_mut::<T::CTX>()
