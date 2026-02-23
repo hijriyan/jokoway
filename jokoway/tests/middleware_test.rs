@@ -22,14 +22,14 @@ use common::{start_http_mock, start_ws_mock};
 // --- HTTP Middleware ---
 
 #[derive(Clone)]
-struct TestHttpMiddleware;
+struct TestJokowayMiddleware;
 
 #[async_trait::async_trait]
-impl HttpMiddleware for TestHttpMiddleware {
+impl JokowayMiddleware for TestJokowayMiddleware {
     type CTX = ();
 
     fn name(&self) -> &'static str {
-        "TestHttpMiddleware"
+        "TestJokowayMiddleware"
     }
 
     fn new_ctx(&self) -> Self::CTX {}
@@ -54,7 +54,7 @@ impl HttpMiddleware for TestHttpMiddleware {
 struct TestWsMiddleware;
 
 #[async_trait::async_trait]
-impl WebsocketMiddleware for TestWsMiddleware {
+impl JokowayMiddleware for TestWsMiddleware {
     type CTX = ();
 
     fn name(&self) -> &'static str {
@@ -63,7 +63,7 @@ impl WebsocketMiddleware for TestWsMiddleware {
 
     fn new_ctx(&self) -> Self::CTX {}
 
-    fn on_message(
+    fn on_websocket_message(
         &self,
         _direction: WebsocketDirection,
         mut frame: WsFrame,
@@ -88,15 +88,14 @@ impl JokowayExtension for ConfigurableTestExtension {
         &self,
         _server: &mut pingora::server::Server,
         _app_ctx: &mut Context,
-        http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-        websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+        middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.add_http {
-            http_middlewares.push(Arc::new(TestHttpMiddleware));
+            middlewares.push(Arc::new(TestJokowayMiddleware));
         }
 
         if self.add_ws {
-            websocket_middlewares.push(Arc::new(TestWsMiddleware));
+            middlewares.push(Arc::new(TestWsMiddleware));
         }
 
         Ok(())
@@ -104,7 +103,7 @@ impl JokowayExtension for ConfigurableTestExtension {
 }
 
 #[tokio::test]
-async fn test_http_middleware() {
+async fn test_jokoway_middleware() {
     let _ = env_logger::try_init();
 
     // 1. Setup Mock
@@ -284,7 +283,7 @@ async fn test_websocket_middleware() {
 #[test]
 fn test_manual_downcast() {
     let middleware = TestWsMiddleware;
-    let dyn_middleware: Arc<dyn jokoway::prelude::WebsocketMiddlewareDyn> = Arc::new(middleware);
+    let dyn_middleware: Arc<dyn jokoway::prelude::JokowayMiddlewareDyn> = Arc::new(middleware);
 
     let mut ctx = dyn_middleware.new_ctx_dyn();
     let frame = WsFrame {
@@ -296,7 +295,7 @@ fn test_manual_downcast() {
         payload: bytes::Bytes::from_static(b"hello"),
     };
 
-    dyn_middleware.on_message_dyn(
+    dyn_middleware.on_websocket_message_dyn(
         WebsocketDirection::UpstreamToDownstream,
         frame,
         ctx.as_mut(),
@@ -305,8 +304,8 @@ fn test_manual_downcast() {
 
 #[tokio::test]
 async fn test_manual_http_downcast() {
-    let middleware = TestHttpMiddleware;
-    let dyn_middleware: Arc<dyn jokoway::prelude::HttpMiddlewareDyn> = Arc::new(middleware);
+    let middleware = TestJokowayMiddleware;
+    let dyn_middleware: Arc<dyn jokoway::prelude::JokowayMiddlewareDyn> = Arc::new(middleware);
 
     let mut ctx = dyn_middleware.new_ctx_dyn();
 
@@ -325,7 +324,7 @@ fn test_websocket_middleware_ordering() {
     }
 
     #[async_trait::async_trait]
-    impl WebsocketMiddleware for OrderedWsMiddleware {
+    impl JokowayMiddleware for OrderedWsMiddleware {
         type CTX = ();
         fn name(&self) -> &'static str {
             "OrderedWsMiddleware"
@@ -336,7 +335,7 @@ fn test_websocket_middleware_ordering() {
         }
     }
 
-    let mut middlewares: Vec<Arc<dyn jokoway::prelude::WebsocketMiddlewareDyn>> = vec![
+    let mut middlewares: Vec<Arc<dyn jokoway::prelude::JokowayMiddlewareDyn>> = vec![
         Arc::new(OrderedWsMiddleware { order: 10 }),
         Arc::new(OrderedWsMiddleware { order: 0 }),
         Arc::new(OrderedWsMiddleware { order: -10 }),
@@ -357,7 +356,7 @@ fn test_remove_middleware() {
     // --- Define Middlewares ---
     struct MiddlewareA;
     #[async_trait::async_trait]
-    impl HttpMiddleware for MiddlewareA {
+    impl JokowayMiddleware for MiddlewareA {
         type CTX = ();
         fn name(&self) -> &'static str {
             "MiddlewareA"
@@ -375,7 +374,7 @@ fn test_remove_middleware() {
 
     struct MiddlewareB;
     #[async_trait::async_trait]
-    impl HttpMiddleware for MiddlewareB {
+    impl JokowayMiddleware for MiddlewareB {
         type CTX = ();
         fn name(&self) -> &'static str {
             "MiddlewareB"
@@ -399,10 +398,9 @@ fn test_remove_middleware() {
             &self,
             _server: &mut pingora::server::Server,
             _app_ctx: &mut Context,
-            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+            middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            http_middlewares.push(Arc::new(MiddlewareA));
+            middlewares.push(Arc::new(MiddlewareA));
             Ok(())
         }
     }
@@ -413,19 +411,18 @@ fn test_remove_middleware() {
             &self,
             _server: &mut pingora::server::Server,
             _app_ctx: &mut Context,
-            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+            middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Remove A
-            let initial_len = http_middlewares.len();
-            http_middlewares.retain(|m| m.name() != "MiddlewareA");
+            let initial_len = middlewares.len();
+            middlewares.retain(|m| m.name() != "MiddlewareA");
             assert!(
-                http_middlewares.len() < initial_len,
+                middlewares.len() < initial_len,
                 "MiddlewareA should have been removed"
             );
 
             // Add B
-            http_middlewares.push(Arc::new(MiddlewareB));
+            middlewares.push(Arc::new(MiddlewareB));
             Ok(())
         }
     }
@@ -436,18 +433,17 @@ fn test_remove_middleware() {
             &self,
             _server: &mut pingora::server::Server,
             _app_ctx: &mut Context,
-            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+            middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Verify A is gone
             assert!(
-                !http_middlewares.iter().any(|m| m.name() == "MiddlewareA"),
+                !middlewares.iter().any(|m| m.name() == "MiddlewareA"),
                 "MiddlewareA should not exist"
             );
 
             // Verify B exists
             assert!(
-                http_middlewares.iter().any(|m| m.name() == "MiddlewareB"),
+                middlewares.iter().any(|m| m.name() == "MiddlewareB"),
                 "MiddlewareB should exist"
             );
             Ok(())
@@ -481,7 +477,7 @@ struct ElapsedTimeCtx {
 }
 
 #[async_trait::async_trait]
-impl HttpMiddleware for ElapsedTimeMiddleware {
+impl JokowayMiddleware for ElapsedTimeMiddleware {
     type CTX = ElapsedTimeCtx;
 
     fn name(&self) -> &'static str {
@@ -578,10 +574,9 @@ async fn test_elapsed_time_middleware() {
             &self,
             _server: &mut pingora::server::Server,
             _app_ctx: &mut Context,
-            http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-            _websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+            middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            http_middlewares.push(self.middleware.clone());
+            middlewares.push(self.middleware.clone());
             Ok(())
         }
     }

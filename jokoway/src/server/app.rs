@@ -125,22 +125,12 @@ impl App {
         self.extensions
             .sort_by_key(|e| std::cmp::Reverse(e.order()));
 
-        let mut middlewares: Vec<Arc<dyn HttpMiddlewareDyn>> = Vec::new();
-        let mut websocket_middlewares: Vec<
-            Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
-        > = Vec::new();
+        let mut middlewares: Vec<Arc<dyn JokowayMiddlewareDyn>> = Vec::new();
 
         for i in 0..self.extensions.len() {
-            self.extensions[i].init(
-                &mut server,
-                &mut app_ctx,
-                &mut middlewares,
-                &mut websocket_middlewares,
-            )?;
+            self.extensions[i].init(&mut server, &mut app_ctx, &mut middlewares)?;
 
             middlewares.sort_by_key(|b| std::cmp::Reverse(b.order()));
-
-            websocket_middlewares.sort_by_key(|b| std::cmp::Reverse(b.order()));
         }
 
         Ok(server)
@@ -155,12 +145,12 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::HttpMiddleware;
+    use crate::prelude::JokowayMiddleware;
     use async_trait::async_trait;
 
     struct EarlyMiddleware;
     #[async_trait]
-    impl HttpMiddleware for EarlyMiddleware {
+    impl JokowayMiddleware for EarlyMiddleware {
         type CTX = ();
         fn name(&self) -> &'static str {
             "EarlyMiddleware"
@@ -173,7 +163,7 @@ mod tests {
 
     struct DefaultMiddleware;
     #[async_trait]
-    impl HttpMiddleware for DefaultMiddleware {
+    impl JokowayMiddleware for DefaultMiddleware {
         type CTX = ();
         fn name(&self) -> &'static str {
             "DefaultMiddleware"
@@ -184,7 +174,7 @@ mod tests {
 
     struct LateMiddleware;
     #[async_trait]
-    impl HttpMiddleware for LateMiddleware {
+    impl JokowayMiddleware for LateMiddleware {
         type CTX = ();
         fn name(&self) -> &'static str {
             "LateMiddleware"
@@ -197,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_middleware_ordering() {
-        let mut middlewares: Vec<Arc<dyn HttpMiddlewareDyn>> = vec![
+        let mut middlewares: Vec<Arc<dyn JokowayMiddlewareDyn>> = vec![
             Arc::new(LateMiddleware),
             Arc::new(EarlyMiddleware),
             Arc::new(DefaultMiddleware),
@@ -216,7 +206,7 @@ mod tests {
     #[test]
     fn test_middleware_ordering_same_order() {
         // Add multiple middlewares with the same order
-        let mut middlewares: Vec<Arc<dyn HttpMiddlewareDyn>> =
+        let mut middlewares: Vec<Arc<dyn JokowayMiddlewareDyn>> =
             vec![Arc::new(DefaultMiddleware), Arc::new(DefaultMiddleware)];
 
         // Sort by order
@@ -233,7 +223,7 @@ mod tests {
         // Test that middlewares with same order maintain insertion order
         struct FirstMiddleware;
         #[async_trait]
-        impl HttpMiddleware for FirstMiddleware {
+        impl JokowayMiddleware for FirstMiddleware {
             type CTX = String;
             fn name(&self) -> &'static str {
                 "FirstMiddleware"
@@ -248,7 +238,7 @@ mod tests {
 
         struct SecondMiddleware;
         #[async_trait]
-        impl HttpMiddleware for SecondMiddleware {
+        impl JokowayMiddleware for SecondMiddleware {
             type CTX = String;
             fn name(&self) -> &'static str {
                 "SecondMiddleware"
@@ -263,7 +253,7 @@ mod tests {
 
         struct ThirdMiddleware;
         #[async_trait]
-        impl HttpMiddleware for ThirdMiddleware {
+        impl JokowayMiddleware for ThirdMiddleware {
             type CTX = String;
             fn name(&self) -> &'static str {
                 "ThirdMiddleware"
@@ -277,7 +267,7 @@ mod tests {
         }
 
         // Add in specific order
-        let mut middlewares: Vec<Arc<dyn HttpMiddlewareDyn>> = vec![
+        let mut middlewares: Vec<Arc<dyn JokowayMiddlewareDyn>> = vec![
             Arc::new(FirstMiddleware),
             Arc::new(SecondMiddleware),
             Arc::new(ThirdMiddleware),
@@ -346,13 +336,10 @@ mod tests {
                 &self,
                 _server: &mut pingora::server::Server,
                 _app_ctx: &mut Context,
-                http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-                _websocket_middlewares: &mut Vec<
-                    std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
-                >,
+                middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let mw = DefaultMiddleware;
-                http_middlewares.push(Arc::new(mw));
+                middlewares.push(Arc::new(mw));
                 Ok(())
             }
         }
@@ -368,17 +355,10 @@ mod tests {
                 &self,
                 _server: &mut pingora::server::Server,
                 _app_ctx: &mut Context,
-                http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-                _websocket_middlewares: &mut Vec<
-                    std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>,
-                >,
+                middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // Verify that the middleware from MwExtension is present
-                assert!(
-                    http_middlewares
-                        .iter()
-                        .any(|m| m.name() == "DefaultMiddleware")
-                );
+                assert!(middlewares.iter().any(|m| m.name() == "DefaultMiddleware"));
                 Ok(())
             }
         }

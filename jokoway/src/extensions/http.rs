@@ -18,12 +18,11 @@ impl JokowayExtension for HttpExtension {
         &self,
         server: &mut Server,
         app_ctx: &mut Context,
-        http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-        websocket_middlewares: &mut Vec<std::sync::Arc<dyn crate::prelude::WebsocketMiddlewareDyn>>,
+        middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let config = app_ctx
-            .get::<JokowayConfig>()
-            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".to_string()))?;
+        let config = app_ctx.get::<JokowayConfig>().ok_or_else(|| {
+            JokowayError::Config("JokowayConfig not found in Context".to_string())
+        })?;
 
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in Context".to_string())
@@ -42,8 +41,7 @@ impl JokowayExtension for HttpExtension {
         let proxy = JokowayProxy::new(
             router,
             Arc::new(app_ctx.clone()),
-            http_middlewares.clone(),
-            websocket_middlewares.clone(),
+            middlewares.clone(),
             false,
         )?;
 

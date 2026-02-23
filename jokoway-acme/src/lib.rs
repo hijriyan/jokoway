@@ -8,7 +8,7 @@ use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
     NewOrder, OrderStatus, RetryPolicy,
 };
-use jokoway_core::{HttpMiddleware, JokowayExtension};
+use jokoway_core::{JokowayExtension, JokowayMiddleware};
 use jokoway_rules::registry::get_registered_hosts;
 use pingora::{
     Error,
@@ -686,7 +686,7 @@ pub struct AcmeMiddleware {
 }
 
 #[async_trait]
-impl HttpMiddleware for AcmeMiddleware {
+impl JokowayMiddleware for AcmeMiddleware {
     type CTX = ();
 
     fn name(&self) -> &'static str {
@@ -731,10 +731,7 @@ impl JokowayExtension for AcmeExtension {
         &self,
         server: &mut Server,
         app_ctx: &mut jokoway_core::Context,
-        http_middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::HttpMiddlewareDyn>>,
-        _websocket_middlewares: &mut Vec<
-            std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
-        >,
+        middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let renewal_service = AcmeRenewalService {
             acme: self.acme_manager.clone(),
@@ -761,7 +758,7 @@ impl JokowayExtension for AcmeExtension {
             acme_manager: self.acme_manager.clone(),
         };
 
-        http_middlewares.push(std::sync::Arc::new(middleware));
+        middlewares.push(std::sync::Arc::new(middleware));
         Ok(())
     }
 }

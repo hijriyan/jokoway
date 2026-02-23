@@ -19,7 +19,6 @@ pub struct ProxyContext {
     pub ws_upstream_decompressor: Option<Decompress>,
 
     pub middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
-    pub websocket_middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
     pub shared_ctx: Context,
 }
 
@@ -40,7 +39,6 @@ impl ProxyContext {
             ws_upstream_decompressor: None,
 
             middleware_ctx: Vec::new(),
-            websocket_middleware_ctx: Vec::new(),
             shared_ctx: Context::new(),
         }
     }

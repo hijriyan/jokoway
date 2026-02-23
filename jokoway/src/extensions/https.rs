@@ -72,12 +72,11 @@ impl JokowayExtension for HttpsExtension {
         &self,
         server: &mut pingora::server::Server,
         app_ctx: &mut Context,
-        http_middlewares: &mut Vec<std::sync::Arc<dyn HttpMiddlewareDyn>>,
-        websocket_middlewares: &mut Vec<std::sync::Arc<dyn WebsocketMiddlewareDyn>>,
+        middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let config = app_ctx
-            .get::<JokowayConfig>()
-            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".to_string()))?;
+        let config = app_ctx.get::<JokowayConfig>().ok_or_else(|| {
+            JokowayError::Config("JokowayConfig not found in Context".to_string())
+        })?;
 
         // Check if HTTPS is configured to listen
         if config.https_listen.is_none() {
@@ -92,13 +91,8 @@ impl JokowayExtension for HttpsExtension {
         })?;
 
         let router = Router::new(service_manager, upstream_manager.clone(), &HTTPS_PROTOCOLS);
-        let proxy = JokowayProxy::new(
-            router,
-            Arc::new(app_ctx.clone()),
-            http_middlewares.clone(),
-            websocket_middlewares.clone(),
-            true,
-        )?;
+        let proxy =
+            JokowayProxy::new(router, Arc::new(app_ctx.clone()), middlewares.clone(), true)?;
 
         if let Some(ssl) = &config.ssl {
             let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate(SslMethod::tls()) {

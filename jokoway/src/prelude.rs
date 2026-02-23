@@ -11,7 +11,6 @@ pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};
 pub use jokoway_core::config::*;
 pub use jokoway_core::tls::{TlsCallback, TlsCallbackHandler};
 pub use jokoway_core::websocket::{
-    WebsocketDirection, WebsocketError, WebsocketErrorAction, WebsocketMessageAction,
-    WebsocketMiddleware, WebsocketMiddlewareDyn, WsFrame,
+    WebsocketDirection, WebsocketError, WebsocketErrorAction, WebsocketMessageAction, WsFrame,
 };
-pub use jokoway_core::{HttpMiddleware, HttpMiddlewareDyn, JokowayExtension};
+pub use jokoway_core::{JokowayMiddleware, JokowayMiddlewareDyn, JokowayExtension};

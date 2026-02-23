@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use bytes::{BufMut, Bytes, BytesMut};
-use jokoway_core::{HttpMiddleware, JokowayExtension};
+use jokoway_core::{JokowayExtension, JokowayMiddleware};
 use pingora::Error;
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
@@ -272,10 +272,7 @@ impl JokowayExtension for CompressExtension {
         &self,
         _server: &mut Server,
         _app_ctx: &mut jokoway_core::Context,
-        http_middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::HttpMiddlewareDyn>>,
-        _websocket_middlewares: &mut Vec<
-            std::sync::Arc<dyn jokoway_core::websocket::WebsocketMiddlewareDyn>,
-        >,
+        middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // We don't really need Context here for compression, but we keep the signature consistent
         let _ = _app_ctx;
@@ -284,7 +281,7 @@ impl JokowayExtension for CompressExtension {
             self.config
         );
 
-        http_middlewares.push(std::sync::Arc::new(CompressMiddleware::new(
+        middlewares.push(std::sync::Arc::new(CompressMiddleware::new(
             self.config.clone(),
         )));
         Ok(())
@@ -543,7 +540,7 @@ impl CompressMiddleware {
 }
 
 #[async_trait]
-impl HttpMiddleware for CompressMiddleware {
+impl JokowayMiddleware for CompressMiddleware {
     type CTX = CompressContext;
 
     fn name(&self) -> &'static str {

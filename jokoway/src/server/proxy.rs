@@ -9,8 +9,7 @@ use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Version;
 use jokoway_core::websocket::{
-    WebsocketMiddlewareDyn, WsFrame, WsOpcode, WsParseResult, encode_ws_frame_into,
-    mask_key_from_time, parse_ws_frames,
+    WsFrame, WsOpcode, WsParseResult, encode_ws_frame_into, mask_key_from_time, parse_ws_frames,
 };
 use pingora::Error;
 use pingora::http::ResponseHeader;
@@ -152,8 +151,7 @@ impl CachedPeerConfig {
 pub struct JokowayProxy {
     pub config: Arc<JokowayConfig>,
     pub router: Arc<Router>,
-    pub http_middlewares: Arc<Vec<Arc<dyn HttpMiddlewareDyn>>>,
-    pub websocket_middlewares: Arc<Vec<Arc<dyn WebsocketMiddlewareDyn>>>,
+    pub middlewares: Arc<Vec<Arc<dyn JokowayMiddlewareDyn>>>,
     pub app_ctx: Arc<Context>,
     pub upstream_manager: Arc<UpstreamManager>,
     pub is_tls: bool,
@@ -163,13 +161,12 @@ impl JokowayProxy {
     pub fn new(
         router: Arc<Router>,
         app_ctx: Arc<Context>,
-        http_middlewares: Vec<Arc<dyn HttpMiddlewareDyn>>,
-        websocket_middlewares: Vec<Arc<dyn WebsocketMiddlewareDyn>>,
+        middlewares: Vec<Arc<dyn JokowayMiddlewareDyn>>,
         is_tls: bool,
     ) -> Result<Self, JokowayError> {
-        let config = app_ctx
-            .get::<JokowayConfig>()
-            .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".to_string()))?;
+        let config = app_ctx.get::<JokowayConfig>().ok_or_else(|| {
+            JokowayError::Config("JokowayConfig not found in Context".to_string())
+        })?;
 
         let upstream_manager = app_ctx.get::<UpstreamManager>().ok_or_else(|| {
             JokowayError::Config("UpstreamManager not found in Context".to_string())
@@ -177,8 +174,7 @@ impl JokowayProxy {
         Ok(JokowayProxy {
             config,
             router,
-            http_middlewares: Arc::new(http_middlewares),
-            websocket_middlewares: Arc::new(websocket_middlewares),
+            middlewares: Arc::new(middlewares),
             app_ctx,
             upstream_manager,
             is_tls,
@@ -263,19 +259,11 @@ impl ProxyHttp for JokowayProxy {
 
     async fn early_request_filter(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<(), Box<Error>> {
-        let is_upgrade = session.is_upgrade_req();
-        if is_upgrade {
-            for ws_middleware in self.websocket_middlewares.iter() {
-                ctx.websocket_middleware_ctx
-                    .push(ws_middleware.new_ctx_dyn());
-            }
-        } else {
-            for middleware in self.http_middlewares.iter() {
-                ctx.middleware_ctx.push(middleware.new_ctx_dyn());
-            }
+        for middleware in self.middlewares.iter() {
+            ctx.middleware_ctx.push(middleware.new_ctx_dyn());
         }
         Ok(())
     }
@@ -285,28 +273,16 @@ impl ProxyHttp for JokowayProxy {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<bool, Box<Error>> {
-        let is_upgrade = session.is_upgrade_req();
-        if is_upgrade {
-            for (idx, middleware) in self.websocket_middlewares.iter().enumerate() {
-                let middleware_ctx = &mut ctx.websocket_middleware_ctx[idx];
-                if middleware
-                    .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
-                    .await?
-                {
-                    return Ok(true);
-                }
-            }
-        } else {
-            for (idx, middleware) in self.http_middlewares.iter().enumerate() {
-                let middleware_ctx = &mut ctx.middleware_ctx[idx];
-                if middleware
-                    .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
-                    .await?
-                {
-                    return Ok(true);
-                }
+        for (idx, middleware) in self.middlewares.iter().enumerate() {
+            let middleware_ctx = &mut ctx.middleware_ctx[idx];
+            if middleware
+                .request_filter_dyn(session, middleware_ctx.as_mut(), &self.app_ctx)
+                .await?
+            {
+                return Ok(true);
             }
         }
+        let is_upgrade = session.is_upgrade_req();
         let req_header = session.req_header_mut();
 
         if is_upgrade {
@@ -434,7 +410,7 @@ impl ProxyHttp for JokowayProxy {
         if ctx.is_upgrade {
             return Ok(());
         }
-        for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+        for (idx, middleware) in self.middlewares.iter().enumerate() {
             let middleware_ctx = &mut ctx.middleware_ctx[idx];
             middleware
                 .upstream_response_filter_dyn(
@@ -460,7 +436,7 @@ impl ProxyHttp for JokowayProxy {
         ctx: &mut Self::CTX,
     ) -> Result<(), Box<Error>> {
         if !ctx.is_upgrade {
-            for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+            for (idx, middleware) in self.middlewares.iter().enumerate() {
                 let middleware_ctx = &mut ctx.middleware_ctx[idx];
                 middleware
                     .request_body_filter_dyn(session, body, end_of_stream, middleware_ctx.as_mut())
@@ -474,7 +450,7 @@ impl ProxyHttp for JokowayProxy {
         };
 
         // Fast path: if no extensions, pass through without parsing
-        if self.websocket_middlewares.is_empty() {
+        if self.middlewares.is_empty() {
             *body = Some(chunk);
             return Ok(());
         }
@@ -498,8 +474,8 @@ impl ProxyHttp for JokowayProxy {
                     };
 
                     match apply_ws_middlewares(
-                        &self.websocket_middlewares,
-                        &mut ctx.websocket_middleware_ctx,
+                        &self.middlewares,
+                        &mut ctx.middleware_ctx,
                         WebsocketDirection::DownstreamToUpstream,
                         frame,
                         decompressor,
@@ -530,8 +506,8 @@ impl ProxyHttp for JokowayProxy {
             }
             WsParseResult::Invalid => {
                 match handle_ws_error(
-                    &self.websocket_middlewares,
-                    &mut ctx.websocket_middleware_ctx,
+                    &self.middlewares,
+                    &mut ctx.middleware_ctx,
                     WebsocketDirection::DownstreamToUpstream,
                     WebsocketError::InvalidFrame,
                 ) {
@@ -567,7 +543,7 @@ impl ProxyHttp for JokowayProxy {
         ctx: &mut Self::CTX,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         if !ctx.is_upgrade {
-            for (idx, middleware) in self.http_middlewares.iter().enumerate() {
+            for (idx, middleware) in self.middlewares.iter().enumerate() {
                 let middleware_ctx = &mut ctx.middleware_ctx[idx];
                 middleware.response_body_filter_dyn(
                     session,
@@ -584,7 +560,7 @@ impl ProxyHttp for JokowayProxy {
         };
 
         // Fast path: if no extensions, pass through without parsing
-        if self.websocket_middlewares.is_empty() {
+        if self.middlewares.is_empty() {
             *body = Some(chunk);
             return Ok(None);
         }
@@ -605,8 +581,8 @@ impl ProxyHttp for JokowayProxy {
                     };
 
                     match apply_ws_middlewares(
-                        &self.websocket_middlewares,
-                        &mut ctx.websocket_middleware_ctx,
+                        &self.middlewares,
+                        &mut ctx.middleware_ctx,
                         WebsocketDirection::UpstreamToDownstream,
                         frame,
                         decompressor,
@@ -632,8 +608,8 @@ impl ProxyHttp for JokowayProxy {
             }
             WsParseResult::Invalid => {
                 match handle_ws_error(
-                    &self.websocket_middlewares,
-                    &mut ctx.websocket_middleware_ctx,
+                    &self.middlewares,
+                    &mut ctx.middleware_ctx,
                     WebsocketDirection::UpstreamToDownstream,
                     WebsocketError::InvalidFrame,
                 ) {
@@ -668,7 +644,7 @@ impl ProxyHttp for JokowayProxy {
 }
 
 fn apply_ws_middlewares(
-    middlewares: &[Arc<dyn WebsocketMiddlewareDyn>],
+    middlewares: &[Arc<dyn JokowayMiddlewareDyn>],
     middleware_ctxs: &mut [Box<dyn std::any::Any + Send + Sync>],
     direction: WebsocketDirection,
     mut frame: WsFrame,
@@ -700,7 +676,7 @@ fn apply_ws_middlewares(
         let ctx = &mut middleware_ctxs[idx];
         action = match action {
             WebsocketMessageAction::Forward(current) => {
-                middleware.on_message_dyn(direction, current, ctx.as_mut())
+                middleware.on_websocket_message_dyn(direction, current, ctx.as_mut())
             }
             other => other,
         };
@@ -730,7 +706,7 @@ fn apply_ws_middlewares(
 }
 
 fn handle_ws_error(
-    middlewares: &[Arc<dyn WebsocketMiddlewareDyn>],
+    middlewares: &[Arc<dyn JokowayMiddlewareDyn>],
     middleware_ctxs: &mut [Box<dyn std::any::Any + Send + Sync>],
     direction: WebsocketDirection,
     error: WebsocketError,
@@ -738,7 +714,7 @@ fn handle_ws_error(
     let mut action = WebsocketErrorAction::PassThrough;
     for (idx, middleware) in middlewares.iter().enumerate() {
         let ctx = &mut middleware_ctxs[idx];
-        match middleware.on_error_dyn(direction, error.clone(), &mut *ctx) {
+        match middleware.on_websocket_error_dyn(direction, error.clone(), &mut *ctx) {
             WebsocketErrorAction::PassThrough => {}
             WebsocketErrorAction::Drop => {
                 action = WebsocketErrorAction::Drop;
@@ -771,13 +747,13 @@ mod tests {
     use crate::server::router::{ALL_PROTOCOLS, Router};
     use crate::server::service::ServiceManager;
     use crate::server::upstream::UpstreamManager;
-    use jokoway_core::websocket::WebsocketMiddleware;
+    use jokoway_core::JokowayMiddleware;
     use std::sync::Arc;
 
     struct UppercaseExtension;
 
     #[async_trait]
-    impl jokoway_core::websocket::WebsocketMiddleware for UppercaseExtension {
+    impl jokoway_core::JokowayMiddleware for UppercaseExtension {
         type CTX = ();
 
         fn name(&self) -> &'static str {
@@ -786,7 +762,7 @@ mod tests {
 
         fn new_ctx(&self) -> Self::CTX {}
 
-        fn on_message(
+        fn on_websocket_message(
             &self,
             _direction: WebsocketDirection,
             mut frame: WsFrame,
@@ -813,7 +789,7 @@ mod tests {
             payload: Bytes::from_static(b"hello"),
         };
 
-        match middleware.on_message(
+        match middleware.on_websocket_message(
             WebsocketDirection::UpstreamToDownstream,
             frame.clone(),
             &mut (),
@@ -825,10 +801,10 @@ mod tests {
         }
 
         // Now test through trait object
-        let middleware_dyn: Arc<dyn WebsocketMiddlewareDyn> = Arc::new(UppercaseExtension);
+        let middleware_dyn: Arc<dyn JokowayMiddlewareDyn> = Arc::new(UppercaseExtension);
         let mut ctx_dyn = middleware_dyn.new_ctx_dyn();
 
-        match middleware_dyn.on_message_dyn(
+        match middleware_dyn.on_websocket_message_dyn(
             WebsocketDirection::UpstreamToDownstream,
             frame,
             &mut *ctx_dyn,
@@ -899,14 +875,8 @@ mod tests {
         );
 
         // Create the proxy with load balancers
-        let _proxy = JokowayProxy::new(
-            router,
-            Arc::new(app_ctx.clone()),
-            Vec::new(),
-            Vec::new(),
-            false,
-        )
-        .expect("Failed to create JokowayProxy");
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), false)
+            .expect("Failed to create JokowayProxy");
 
         // Verify load balancer was created
         assert!(upstream_manager.get("test_upstream").is_some());
@@ -982,14 +952,8 @@ mod tests {
             // &config,
         );
 
-        let _proxy = JokowayProxy::new(
-            router,
-            Arc::new(app_ctx.clone()),
-            Vec::new(),
-            Vec::new(),
-            false,
-        )
-        .expect("Failed to create JokowayProxy");
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), false)
+            .expect("Failed to create JokowayProxy");
 
         let load_balancer = upstream_manager.get("test_upstream").unwrap();
 
@@ -1052,14 +1016,8 @@ mod tests {
             // &config,
         );
 
-        let _proxy = JokowayProxy::new(
-            router,
-            Arc::new(app_ctx.clone()),
-            Vec::new(),
-            Vec::new(),
-            false,
-        )
-        .expect("Failed to create JokowayProxy");
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), false)
+            .expect("Failed to create JokowayProxy");
 
         // Should not create load balancer for empty upstream
         assert!(upstream_manager.get("empty_upstream").is_none());

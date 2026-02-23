@@ -68,28 +68,34 @@ impl Default for Context {
 /// Middlewares can inspect and modify requests before they reach the upstream,
 /// and responses before they are sent to the client.
 #[async_trait::async_trait]
-pub trait HttpMiddleware: Send + Sync {
-    /// Per-middleware context type
+pub trait JokowayMiddleware: Send + Sync {
+    /// Per-middleware context type, instantiated once per request lifecycle
+    /// to hold state across different filtering phases.
     type CTX: Send + Sync + 'static;
 
-    /// The name of the middleware
+    /// The name of the middleware, used for identification and debugging.
     fn name(&self) -> &'static str;
 
-    /// Create a new context instance for this middleware
+    /// Create a new context instance for this middleware.
+    /// This is called early and the context is passed to all subsequent filter hooks for a given request.
     fn new_ctx(&self) -> Self::CTX;
 
-    /// The order the middleware will run
+    /// The execution order of the middleware.
     ///
-    /// The higher the value, the earlier it runs relative to other middlewares.
-    /// If the order of the middleware is not important, leave it to the default 0.
+    /// The higher the value, the earlier it runs relative to other middlewares in the chain.
+    /// Default is 0. Middlewares with the same order value are executed in the order they were registered.
     fn order(&self) -> i16 {
         0
     }
 
-    /// Called when the request is received, before routing.
+    /// Invoked after receiving the client's request headers, but before routing or connecting to the upstream.
     ///
-    /// Returns Ok(true) if the request was handled and the proxy should stop processing.
-    /// Returns Ok(false) to continue to the next filter/routing.
+    /// This hook is ideal for authentication, request block-listing, rate limiting, and
+    /// modifying request headers before the router processes them.
+    ///
+    /// Return `Ok(true)` if the middleware has fully handled the request (e.g., sent an early response)
+    /// and further proxy processing should be aborted.
+    /// Return `Ok(false)` to continue to the next middleware and eventual routing.
     async fn request_filter(
         &self,
         _session: &mut Session,
@@ -99,7 +105,13 @@ pub trait HttpMiddleware: Send + Sync {
         Ok(false)
     }
 
-    /// Called after the upstream response is received, before sending to client.
+    /// Invoked after receiving the HTTP response headers from the upstream server,
+    /// but before they are forwarded to the downstream client.
+    ///
+    /// Useful for modifying response headers (e.g., injecting security headers, CORS),
+    /// inspecting the status code, or logging the upstream response details.
+    ///
+    /// *Note: This is currently bypassed for upgraded WebSocket connections (101 Switching Protocols).*
     async fn upstream_response_filter(
         &self,
         _session: &mut Session,
@@ -110,10 +122,15 @@ pub trait HttpMiddleware: Send + Sync {
         Ok(())
     }
 
-    /// Called for each chunk of the response body.
+    /// Invoked for each chunk of the response body streamed from the upstream to the client.
     ///
-    /// Returns Ok(Some(duration)) if the body handling took some time that should be recorded.
-    /// Returns Ok(None) to continue processing.
+    /// Allows inspecting or mutating response body chunks before they reach the client.
+    /// If there is no more body to process, `_end_of_stream` will be true.
+    ///
+    /// Return `Ok(Some(duration))` if you want to record the time spent processing this chunk
+    /// in the metrics/logs, or `Ok(None)` otherwise.
+    ///
+    /// *Note: This hook is not invoked for WebSocket traffic. Use `on_websocket_message` instead.*
     fn response_body_filter(
         &self,
         _session: &mut Session,
@@ -124,10 +141,12 @@ pub trait HttpMiddleware: Send + Sync {
         Ok(None)
     }
 
-    /// Called for each chunk of the request body.
+    /// Invoked for each chunk of the request body streamed from the client to the upstream.
     ///
-    /// This allows middlewares to inspect, modify, or buffer request body data
-    /// before it is sent to the upstream server.
+    /// Allows inspecting, buffering, or mutating request body chunks (e.g., parsing JSON validation)
+    /// before they reach the upstream server. If there is no more body, `_end_of_stream` will be true.
+    ///
+    /// *Note: This hook is not invoked for WebSocket traffic. Use `on_websocket_message` instead.*
     async fn request_body_filter(
         &self,
         _session: &mut Session,
@@ -137,11 +156,39 @@ pub trait HttpMiddleware: Send + Sync {
     ) -> Result<(), Box<Error>> {
         Ok(())
     }
+
+    /// Invoked whenever a discrete, fully-parsed WebSocket frame is intercepted.
+    ///
+    /// This hook operates on both directions of the WebSocket connection, distinguished by the `_direction` parameter.
+    /// Middlewares can inspect the payload, modify the message, drop the frame silently, or
+    /// close the connection altogether using the returned `WebsocketMessageAction`.
+    fn on_websocket_message(
+        &self,
+        _direction: crate::websocket::WebsocketDirection,
+        frame: crate::websocket::WsFrame,
+        _ctx: &mut Self::CTX,
+    ) -> crate::websocket::WebsocketMessageAction {
+        crate::websocket::WebsocketMessageAction::Forward(frame)
+    }
+
+    /// Invoked when an error occurs while parsing raw stream bytes into WebSocket frames.
+    ///
+    /// This provides a facility for dealing with malformed or invalid WebSocket data.
+    /// The middleware can decide to pass the raw unparsed bytes through unmodified, drop the invalid
+    /// data, or force close the WebSocket connection.
+    fn on_websocket_error(
+        &self,
+        _direction: crate::websocket::WebsocketDirection,
+        _error: crate::websocket::WebsocketError,
+        _ctx: &mut Self::CTX,
+    ) -> crate::websocket::WebsocketErrorAction {
+        crate::websocket::WebsocketErrorAction::PassThrough
+    }
 }
 
-/// Dynamic dispatch version of HttpMiddleware for trait objects
+/// Dynamic dispatch version of JokowayMiddleware for trait objects
 #[async_trait::async_trait]
-pub trait HttpMiddlewareDyn: Send + Sync {
+pub trait JokowayMiddlewareDyn: Send + Sync {
     /// The name of the middleware
     fn name(&self) -> &'static str;
 
@@ -182,17 +229,31 @@ pub trait HttpMiddlewareDyn: Send + Sync {
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
     ) -> Result<(), Box<Error>>;
+
+    fn on_websocket_message_dyn(
+        &self,
+        direction: crate::websocket::WebsocketDirection,
+        frame: crate::websocket::WsFrame,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> crate::websocket::WebsocketMessageAction;
+
+    fn on_websocket_error_dyn(
+        &self,
+        direction: crate::websocket::WebsocketDirection,
+        error: crate::websocket::WebsocketError,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> crate::websocket::WebsocketErrorAction;
 }
 
-/// Blanket implementation for all HttpMiddleware types
+/// Blanket implementation for all JokowayMiddleware types
 #[async_trait::async_trait]
-impl<T: HttpMiddleware> HttpMiddlewareDyn for T {
+impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
     fn name(&self) -> &'static str {
-        HttpMiddleware::name(self)
+        JokowayMiddleware::name(self)
     }
 
     fn order(&self) -> i16 {
-        HttpMiddleware::order(self)
+        JokowayMiddleware::order(self)
     }
 
     fn new_ctx_dyn(&self) -> Box<dyn Any + Send + Sync> {
@@ -251,6 +312,30 @@ impl<T: HttpMiddleware> HttpMiddlewareDyn for T {
         self.request_body_filter(session, body, end_of_stream, ctx)
             .await
     }
+
+    fn on_websocket_message_dyn(
+        &self,
+        direction: crate::websocket::WebsocketDirection,
+        frame: crate::websocket::WsFrame,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> crate::websocket::WebsocketMessageAction {
+        let ctx = ctx
+            .downcast_mut::<T::CTX>()
+            .expect("Invalid context type for JokowayMiddleware");
+        self.on_websocket_message(direction, frame, ctx)
+    }
+
+    fn on_websocket_error_dyn(
+        &self,
+        direction: crate::websocket::WebsocketDirection,
+        error: crate::websocket::WebsocketError,
+        ctx: &mut (dyn Any + Send + Sync),
+    ) -> crate::websocket::WebsocketErrorAction {
+        let ctx = ctx
+            .downcast_mut::<T::CTX>()
+            .expect("Invalid context type for JokowayMiddleware");
+        self.on_websocket_error(direction, error, ctx)
+    }
 }
 
 /// Extension trait for adding custom functionality to Jokoway
@@ -273,8 +358,7 @@ pub trait JokowayExtension: Send + Sync {
         &self,
         _server: &mut Server,
         _app_ctx: &mut Context,
-        _http_middlewares: &mut Vec<Arc<dyn HttpMiddlewareDyn>>,
-        _websocket_middlewares: &mut Vec<Arc<dyn crate::websocket::WebsocketMiddlewareDyn>>,
+        _middlewares: &mut Vec<Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
