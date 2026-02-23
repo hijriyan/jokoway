@@ -68,6 +68,7 @@ impl JokowayMiddleware for TestWsMiddleware {
         _direction: WebsocketDirection,
         mut frame: WsFrame,
         _ctx: &mut Self::CTX,
+        _app_ctx: &Context,
     ) -> WebsocketMessageAction {
         if let Some(text) = frame.text() {
             let modified = format!("{}_modified", text);
@@ -299,6 +300,7 @@ fn test_manual_downcast() {
         WebsocketDirection::UpstreamToDownstream,
         frame,
         ctx.as_mut(),
+        &Context::new(),
     );
 }
 
@@ -504,6 +506,7 @@ impl JokowayMiddleware for ElapsedTimeMiddleware {
         _body: &mut Option<bytes::Bytes>,
         end_of_stream: bool,
         ctx: &mut Self::CTX,
+        _app_ctx: &Context,
     ) -> Result<Option<Duration>, Box<pingora::Error>> {
         if end_of_stream && let Some(start) = ctx.start_time {
             let elapsed = start.elapsed();

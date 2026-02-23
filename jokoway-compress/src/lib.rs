@@ -704,6 +704,7 @@ impl JokowayMiddleware for CompressMiddleware {
         body: &mut Option<bytes::Bytes>,
         end_of_stream: bool,
         ctx: &mut Self::CTX,
+        _app_ctx: &jokoway_core::Context,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         if !ctx.should_compress || ctx.compression_algo.is_none() {
             return Ok(None);

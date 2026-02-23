@@ -439,7 +439,13 @@ impl ProxyHttp for JokowayProxy {
             for (idx, middleware) in self.middlewares.iter().enumerate() {
                 let middleware_ctx = &mut ctx.middleware_ctx[idx];
                 middleware
-                    .request_body_filter_dyn(session, body, end_of_stream, middleware_ctx.as_mut())
+                    .request_body_filter_dyn(
+                        session,
+                        body,
+                        end_of_stream,
+                        middleware_ctx.as_mut(),
+                        &self.app_ctx,
+                    )
                     .await?;
             }
             return Ok(());
@@ -479,6 +485,7 @@ impl ProxyHttp for JokowayProxy {
                         WebsocketDirection::DownstreamToUpstream,
                         frame,
                         decompressor,
+                        &self.app_ctx,
                     ) {
                         WebsocketMessageAction::Forward(updated) => {
                             encode_ws_frame_into(&updated, Some(mask_key_from_time()), &mut out);
@@ -510,6 +517,7 @@ impl ProxyHttp for JokowayProxy {
                     &mut ctx.middleware_ctx,
                     WebsocketDirection::DownstreamToUpstream,
                     WebsocketError::InvalidFrame,
+                    &self.app_ctx,
                 ) {
                     WebsocketErrorAction::PassThrough => {
                         let data = ctx.ws_client_buf.split_to(ctx.ws_client_buf.len()).freeze();
@@ -550,6 +558,7 @@ impl ProxyHttp for JokowayProxy {
                     body,
                     end_of_stream,
                     middleware_ctx.as_mut(),
+                    &self.app_ctx,
                 )?;
             }
             return Ok(None);
@@ -586,6 +595,7 @@ impl ProxyHttp for JokowayProxy {
                         WebsocketDirection::UpstreamToDownstream,
                         frame,
                         decompressor,
+                        &self.app_ctx,
                     ) {
                         WebsocketMessageAction::Forward(updated) => {
                             encode_ws_frame_into(&updated, None, &mut out);
@@ -612,6 +622,7 @@ impl ProxyHttp for JokowayProxy {
                     &mut ctx.middleware_ctx,
                     WebsocketDirection::UpstreamToDownstream,
                     WebsocketError::InvalidFrame,
+                    &self.app_ctx,
                 ) {
                     WebsocketErrorAction::PassThrough => {
                         let data = ctx
@@ -649,6 +660,7 @@ fn apply_ws_middlewares(
     direction: WebsocketDirection,
     mut frame: WsFrame,
     decompressor: Option<&mut flate2::Decompress>,
+    app_ctx: &Context,
 ) -> WebsocketMessageAction {
     // Decompress if RSV1 is set (permessage-deflate)
     let original_payload = frame.payload.clone();
@@ -676,7 +688,7 @@ fn apply_ws_middlewares(
         let ctx = &mut middleware_ctxs[idx];
         action = match action {
             WebsocketMessageAction::Forward(current) => {
-                middleware.on_websocket_message_dyn(direction, current, ctx.as_mut())
+                middleware.on_websocket_message_dyn(direction, current, ctx.as_mut(), app_ctx)
             }
             other => other,
         };
@@ -710,11 +722,12 @@ fn handle_ws_error(
     middleware_ctxs: &mut [Box<dyn std::any::Any + Send + Sync>],
     direction: WebsocketDirection,
     error: WebsocketError,
+    app_ctx: &Context,
 ) -> WebsocketErrorAction {
     let mut action = WebsocketErrorAction::PassThrough;
     for (idx, middleware) in middlewares.iter().enumerate() {
         let ctx = &mut middleware_ctxs[idx];
-        match middleware.on_websocket_error_dyn(direction, error.clone(), &mut *ctx) {
+        match middleware.on_websocket_error_dyn(direction, error.clone(), &mut *ctx, app_ctx) {
             WebsocketErrorAction::PassThrough => {}
             WebsocketErrorAction::Drop => {
                 action = WebsocketErrorAction::Drop;
@@ -767,6 +780,7 @@ mod tests {
             _direction: WebsocketDirection,
             mut frame: WsFrame,
             _ctx: &mut Self::CTX,
+            _app_ctx: &Context,
         ) -> WebsocketMessageAction {
             if let Ok(text) = std::str::from_utf8(&frame.payload) {
                 frame.payload = Bytes::copy_from_slice(text.to_ascii_uppercase().as_bytes());
@@ -793,6 +807,7 @@ mod tests {
             WebsocketDirection::UpstreamToDownstream,
             frame.clone(),
             &mut (),
+            &Context::new(),
         ) {
             WebsocketMessageAction::Forward(updated) => {
                 assert_eq!(updated.payload, Bytes::from_static(b"HELLO"));
@@ -808,6 +823,7 @@ mod tests {
             WebsocketDirection::UpstreamToDownstream,
             frame,
             &mut *ctx_dyn,
+            &Context::new(),
         ) {
             WebsocketMessageAction::Forward(updated) => {
                 assert_eq!(updated.payload, Bytes::from_static(b"HELLO"));

@@ -137,6 +137,7 @@ pub trait JokowayMiddleware: Send + Sync {
         _body: &mut Option<Bytes>,
         _end_of_stream: bool,
         _ctx: &mut Self::CTX,
+        _app_ctx: &Context,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         Ok(None)
     }
@@ -153,6 +154,7 @@ pub trait JokowayMiddleware: Send + Sync {
         _body: &mut Option<Bytes>,
         _end_of_stream: bool,
         _ctx: &mut Self::CTX,
+        _app_ctx: &Context,
     ) -> Result<(), Box<Error>> {
         Ok(())
     }
@@ -167,6 +169,7 @@ pub trait JokowayMiddleware: Send + Sync {
         _direction: crate::websocket::WebsocketDirection,
         frame: crate::websocket::WsFrame,
         _ctx: &mut Self::CTX,
+        _app_ctx: &Context,
     ) -> crate::websocket::WebsocketMessageAction {
         crate::websocket::WebsocketMessageAction::Forward(frame)
     }
@@ -181,6 +184,7 @@ pub trait JokowayMiddleware: Send + Sync {
         _direction: crate::websocket::WebsocketDirection,
         _error: crate::websocket::WebsocketError,
         _ctx: &mut Self::CTX,
+        _app_ctx: &Context,
     ) -> crate::websocket::WebsocketErrorAction {
         crate::websocket::WebsocketErrorAction::PassThrough
     }
@@ -220,6 +224,7 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> Result<Option<std::time::Duration>, Box<Error>>;
 
     async fn request_body_filter_dyn(
@@ -228,6 +233,7 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> Result<(), Box<Error>>;
 
     fn on_websocket_message_dyn(
@@ -235,6 +241,7 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         direction: crate::websocket::WebsocketDirection,
         frame: crate::websocket::WsFrame,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> crate::websocket::WebsocketMessageAction;
 
     fn on_websocket_error_dyn(
@@ -242,6 +249,7 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         direction: crate::websocket::WebsocketDirection,
         error: crate::websocket::WebsocketError,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> crate::websocket::WebsocketErrorAction;
 }
 
@@ -292,11 +300,12 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.response_body_filter(session, body, end_of_stream, ctx)
+        self.response_body_filter(session, body, end_of_stream, ctx, app_ctx)
     }
 
     async fn request_body_filter_dyn(
@@ -305,11 +314,12 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> Result<(), Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.request_body_filter(session, body, end_of_stream, ctx)
+        self.request_body_filter(session, body, end_of_stream, ctx, app_ctx)
             .await
     }
 
@@ -318,11 +328,12 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         direction: crate::websocket::WebsocketDirection,
         frame: crate::websocket::WsFrame,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> crate::websocket::WebsocketMessageAction {
         let ctx = ctx
             .downcast_mut::<T::CTX>()
             .expect("Invalid context type for JokowayMiddleware");
-        self.on_websocket_message(direction, frame, ctx)
+        self.on_websocket_message(direction, frame, ctx, app_ctx)
     }
 
     fn on_websocket_error_dyn(
@@ -330,11 +341,12 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         direction: crate::websocket::WebsocketDirection,
         error: crate::websocket::WebsocketError,
         ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &Context,
     ) -> crate::websocket::WebsocketErrorAction {
         let ctx = ctx
             .downcast_mut::<T::CTX>()
             .expect("Invalid context type for JokowayMiddleware");
-        self.on_websocket_error(direction, error, ctx)
+        self.on_websocket_error(direction, error, ctx, app_ctx)
     }
 }
 
