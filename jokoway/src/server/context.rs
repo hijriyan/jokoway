@@ -2,7 +2,7 @@ use jokoway_transformer::{RequestTransformer, ResponseTransformer};
 
 use bytes::BytesMut;
 use flate2::Decompress;
-pub use jokoway_core::Context;
+pub use jokoway_core::{AppContext, Context, RequestContext};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ pub struct ProxyContext {
     pub ws_upstream_decompressor: Option<Decompress>,
 
     pub middleware_ctx: Vec<Box<dyn Any + Send + Sync>>,
-    pub shared_ctx: Context,
+    pub request_ctx: RequestContext,
 }
 
 impl ProxyContext {
@@ -39,7 +39,7 @@ impl ProxyContext {
             ws_upstream_decompressor: None,
 
             middleware_ctx: Vec::new(),
-            shared_ctx: Context::new(),
+            request_ctx: RequestContext::new(),
         }
     }
 
@@ -58,11 +58,11 @@ impl Default for ProxyContext {
 
 #[cfg(test)]
 mod tests {
-    use super::Context;
+    use super::{AppContext, Context};
 
     #[test]
     fn app_ctx_insert_get_remove() {
-        let ctx = Context::new();
+        let ctx = AppContext::new();
 
         assert!(ctx.get::<usize>().is_none());
         ctx.insert(12usize);
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn app_ctx_handles_multiple_types() {
-        let ctx = Context::new();
+        let ctx = AppContext::new();
 
         ctx.insert(10usize);
         ctx.insert("jokoway".to_string());
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn app_ctx_remove_missing_returns_none() {
-        let ctx = Context::new();
+        let ctx = AppContext::new();
         assert!(ctx.remove::<u64>().is_none());
     }
 
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn app_ctx_store_custom_struct() {
-        let ctx = Context::new();
+        let ctx = AppContext::new();
         let data = CustomData {
             id: 7,
             label: "alpha".to_string(),

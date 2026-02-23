@@ -8,7 +8,7 @@ use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
     NewOrder, OrderStatus, RetryPolicy,
 };
-use jokoway_core::{JokowayExtension, JokowayMiddleware};
+use jokoway_core::{Context, JokowayExtension, JokowayMiddleware};
 use jokoway_rules::registry::get_registered_hosts;
 use pingora::{
     Error,
@@ -703,7 +703,8 @@ impl JokowayMiddleware for AcmeMiddleware {
         &self,
         session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::Context,
+        _app_ctx: &jokoway_core::AppContext,
+        _request_ctx: &jokoway_core::RequestContext,
     ) -> Result<bool, Box<Error>> {
         let path = session.req_header().uri.path();
         if path.starts_with("/.well-known/acme-challenge/") {
@@ -730,7 +731,7 @@ impl JokowayExtension for AcmeExtension {
     fn init(
         &self,
         server: &mut Server,
-        app_ctx: &mut jokoway_core::Context,
+        app_ctx: &mut jokoway_core::AppContext,
         middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let renewal_service = AcmeRenewalService {

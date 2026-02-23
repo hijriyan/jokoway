@@ -193,7 +193,7 @@ pub struct UpstreamManager {
 }
 
 impl UpstreamManager {
-    pub fn new(app_ctx: &Context) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
+    pub fn new(app_ctx: &AppContext) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
             .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".into()))?;
@@ -402,7 +402,7 @@ impl JokowayExtension for UpstreamExtension {
     fn init(
         &self,
         server: &mut pingora::server::Server,
-        app_ctx: &mut Context,
+        app_ctx: &mut AppContext,
         _middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Initialize UpstreamManager
@@ -503,7 +503,7 @@ mod tests {
             ..Default::default()
         };
 
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         // Use mock resolver to avoid network dependency and speed up tests
         let mut ips = std::collections::HashMap::new();

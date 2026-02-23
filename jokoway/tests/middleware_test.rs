@@ -5,7 +5,7 @@ use jokoway::config::models::{
 
 use jokoway::prelude::*;
 use jokoway::server::app::App;
-use jokoway::server::context::Context;
+use jokoway::server::context::{AppContext, Context, RequestContext};
 use pingora::proxy::Session;
 use pingora::server::configuration::Opt;
 use reqwest::Client;
@@ -38,7 +38,8 @@ impl JokowayMiddleware for TestJokowayMiddleware {
         &self,
         session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<bool, Box<pingora::Error>> {
         session
             .req_header_mut()
@@ -68,7 +69,8 @@ impl JokowayMiddleware for TestWsMiddleware {
         _direction: WebsocketDirection,
         mut frame: WsFrame,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> WebsocketMessageAction {
         if let Some(text) = frame.text() {
             let modified = format!("{}_modified", text);
@@ -88,7 +90,7 @@ impl JokowayExtension for ConfigurableTestExtension {
     fn init(
         &self,
         _server: &mut pingora::server::Server,
-        _app_ctx: &mut Context,
+        _app_ctx: &mut AppContext,
         middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.add_http {
@@ -300,7 +302,8 @@ fn test_manual_downcast() {
         WebsocketDirection::UpstreamToDownstream,
         frame,
         ctx.as_mut(),
-        &Context::new(),
+        &AppContext::new(),
+        &RequestContext::new(),
     );
 }
 
@@ -368,7 +371,8 @@ fn test_remove_middleware() {
             &self,
             _session: &mut Session,
             _ctx: &mut Self::CTX,
-            _app_ctx: &Context,
+            _app_ctx: &AppContext,
+            _request_ctx: &RequestContext,
         ) -> Result<bool, Box<pingora::Error>> {
             Ok(false)
         }
@@ -386,7 +390,8 @@ fn test_remove_middleware() {
             &self,
             _session: &mut Session,
             _ctx: &mut Self::CTX,
-            _app_ctx: &Context,
+            _app_ctx: &AppContext,
+            _request_ctx: &RequestContext,
         ) -> Result<bool, Box<pingora::Error>> {
             Ok(false)
         }
@@ -399,7 +404,7 @@ fn test_remove_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut Context,
+            _app_ctx: &mut AppContext,
             middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             middlewares.push(Arc::new(MiddlewareA));
@@ -412,7 +417,7 @@ fn test_remove_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut Context,
+            _app_ctx: &mut AppContext,
             middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Remove A
@@ -434,7 +439,7 @@ fn test_remove_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut Context,
+            _app_ctx: &mut AppContext,
             middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Verify A is gone
@@ -494,7 +499,8 @@ impl JokowayMiddleware for ElapsedTimeMiddleware {
         &self,
         _session: &mut Session,
         ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<bool, Box<pingora::Error>> {
         ctx.start_time = Some(std::time::Instant::now());
         Ok(false)
@@ -506,7 +512,8 @@ impl JokowayMiddleware for ElapsedTimeMiddleware {
         _body: &mut Option<bytes::Bytes>,
         end_of_stream: bool,
         ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<Option<Duration>, Box<pingora::Error>> {
         if end_of_stream && let Some(start) = ctx.start_time {
             let elapsed = start.elapsed();
@@ -576,7 +583,7 @@ async fn test_elapsed_time_middleware() {
         fn init(
             &self,
             _server: &mut pingora::server::Server,
-            _app_ctx: &mut Context,
+            _app_ctx: &mut AppContext,
             middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             middlewares.push(self.middleware.clone());
@@ -624,4 +631,164 @@ async fn test_elapsed_time_middleware() {
         recorded[0] > Duration::from_micros(1),
         "Duration should be non-zero"
     );
+}
+
+struct WriterMiddleware;
+
+#[async_trait::async_trait]
+impl JokowayMiddleware for WriterMiddleware {
+    type CTX = ();
+
+    fn name(&self) -> &'static str {
+        "WriterMiddleware"
+    }
+
+    fn new_ctx(&self) -> Self::CTX {}
+
+    async fn request_filter(
+        &self,
+        _session: &mut Session,
+        _ctx: &mut Self::CTX,
+        _app_ctx: &AppContext,
+        request_ctx: &RequestContext,
+    ) -> Result<bool, Box<pingora::Error>> {
+        request_ctx.insert("hello_request_ctx".to_string());
+        Ok(false)
+    }
+}
+
+struct ReaderMiddleware {
+    results: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl JokowayMiddleware for ReaderMiddleware {
+    type CTX = ();
+
+    fn name(&self) -> &'static str {
+        "ReaderMiddleware"
+    }
+
+    fn new_ctx(&self) -> Self::CTX {}
+
+    async fn upstream_response_filter(
+        &self,
+        _session: &mut Session,
+        _upstream_response: &mut pingora::http::ResponseHeader,
+        _ctx: &mut Self::CTX,
+        _app_ctx: &AppContext,
+        request_ctx: &RequestContext,
+    ) -> Result<(), Box<pingora::Error>> {
+        if let Some(val) = request_ctx.get::<String>() {
+            self.results.lock().unwrap().push(val.as_ref().clone());
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_request_ctx_middleware() {
+    let _ = env_logger::try_init();
+
+    // 1. Setup Mock
+    let mock_server = start_http_mock().await;
+    Mock::given(method("GET"))
+        .and(path("/shared"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("done"))
+        .mount(&mock_server)
+        .await;
+
+    // 2. Configure Jokoway
+    let ups_name = "mock-shared";
+    let mock_uri = mock_server.uri();
+    let mock_addr = mock_uri.trim_start_matches("http://");
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let config = JokowayConfig {
+        http_listen: format!("127.0.0.1:{}", port),
+        upstreams: vec![Upstream {
+            name: ups_name.to_string(),
+            servers: vec![UpstreamServer {
+                host: mock_addr.to_string(),
+                weight: Some(1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        services: vec![Arc::new(Service {
+            name: "shared-service".to_string(),
+            host: ups_name.to_string(),
+            protocols: vec![ServiceProtocol::Http],
+            routes: vec![Route {
+                name: "shared-route".to_string(),
+                rule: "PathPrefix(`/shared`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
+            }],
+        })],
+        ..Default::default()
+    };
+
+    // 3. Setup Middleware with shared state
+    let results = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    struct SharedExtension {
+        reader: Arc<ReaderMiddleware>,
+        writer: Arc<WriterMiddleware>,
+    }
+
+    impl JokowayExtension for SharedExtension {
+        fn init(
+            &self,
+            _server: &mut pingora::server::Server,
+            _app_ctx: &mut AppContext,
+            middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            middlewares.push(self.writer.clone());
+            middlewares.push(self.reader.clone());
+            Ok(())
+        }
+    }
+
+    let extension = SharedExtension {
+        writer: Arc::new(WriterMiddleware),
+        reader: Arc::new(ReaderMiddleware {
+            results: results.clone(),
+        }),
+    };
+
+    // 4. Start App
+    let app = App::new(config, None, Opt::default(), vec![Box::new(extension)]);
+
+    std::thread::spawn(move || {
+        if let Err(e) = app.run() {
+            eprintln!("App failed: {:?}", e);
+        }
+    });
+
+    // 5. Test Request
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:{}/shared", port);
+
+    let mut success = false;
+    for _ in 0..50 {
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status() == 200
+        {
+            success = true;
+            break;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    assert!(success, "Failed to reach proxy");
+
+    sleep(Duration::from_millis(100)).await;
+
+    // 6. Assert stats
+    let lock = results.lock().unwrap();
+    assert_eq!(lock.len(), 1);
+    assert_eq!(lock[0], "hello_request_ctx");
 }

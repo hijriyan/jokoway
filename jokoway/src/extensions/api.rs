@@ -186,12 +186,12 @@ impl utoipa::Modify for SecurityAddon {
 
 #[derive(Clone)]
 struct ApiState {
-    app_ctx: Arc<Context>,
+    app_ctx: Arc<AppContext>,
 }
 
 struct ApiService {
     settings: ApiSettings,
-    app_ctx: Arc<Context>,
+    app_ctx: Arc<AppContext>,
 }
 
 #[async_trait]
@@ -288,7 +288,7 @@ impl JokowayExtension for ApiExtension {
     fn init(
         &self,
         server: &mut pingora::server::Server,
-        app_ctx: &mut jokoway_core::Context,
+        app_ctx: &mut jokoway_core::AppContext,
         _middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let service = GenBackgroundService::new(

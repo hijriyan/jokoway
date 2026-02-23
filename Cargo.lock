@@ -1827,6 +1827,7 @@ dependencies = [
  "async-trait",
  "boring",
  "bytes",
+ "dashmap",
  "flate2",
  "pingora",
  "serde",

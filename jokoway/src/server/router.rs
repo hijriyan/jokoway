@@ -357,7 +357,7 @@ mod tests {
     use super::*;
     use crate::config::models::{JokowayConfig, Route, Service, ServiceProtocol};
     use crate::extensions::dns::DnsResolver;
-    use crate::server::context::Context;
+    use crate::server::context::{AppContext, Context};
 
     fn create_test_config() -> JokowayConfig {
         JokowayConfig {
@@ -427,7 +427,7 @@ mod tests {
             ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
         );
 
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
 
@@ -482,7 +482,7 @@ mod tests {
             ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
         );
 
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
 
@@ -613,7 +613,7 @@ mod tests {
             ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
         );
 
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
 
@@ -752,7 +752,7 @@ mod tests {
             services: services.into_iter().map(Arc::new).collect(),
             ..Default::default()
         };
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
         let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
@@ -858,7 +858,7 @@ mod tests {
             services: services.into_iter().map(Arc::new).collect(),
             ..Default::default()
         };
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
         let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
@@ -947,7 +947,7 @@ mod tests {
             services: services.into_iter().map(Arc::new).collect(),
             ..Default::default()
         };
-        let app_ctx = Context::new();
+        let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
         let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();

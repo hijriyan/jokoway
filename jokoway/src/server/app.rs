@@ -8,7 +8,7 @@ use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamExtension;
 #[cfg(feature = "acme-extension")]
 use jokoway_acme::{AcmeConfigExt, AcmeExtension};
-use jokoway_core::Context;
+use jokoway_core::{AppContext, Context};
 use pingora::server::Server;
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ pub struct App {
     pub server_conf: Option<ServerConf>,
     pub opt: Opt,
     pub extensions: Vec<Box<dyn JokowayExtension>>,
-    pub app_ctx: Context,
+    pub app_ctx: AppContext,
 }
 
 impl App {
@@ -34,7 +34,7 @@ impl App {
             server_conf,
             opt,
             extensions: custom_extensions,
-            app_ctx: Context::new(),
+            app_ctx: AppContext::new(),
         };
 
         // Register ACME extension if configured
@@ -99,7 +99,7 @@ impl App {
         self.extensions.push(Box::new(extension));
     }
 
-    pub fn app_ctx(&self) -> &Context {
+    pub fn app_ctx(&self) -> &AppContext {
         &self.app_ctx
     }
 
@@ -335,7 +335,7 @@ mod tests {
             fn init(
                 &self,
                 _server: &mut pingora::server::Server,
-                _app_ctx: &mut Context,
+                _app_ctx: &mut AppContext,
                 middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let mw = DefaultMiddleware;
@@ -354,7 +354,7 @@ mod tests {
             fn init(
                 &self,
                 _server: &mut pingora::server::Server,
-                _app_ctx: &mut Context,
+                _app_ctx: &mut AppContext,
                 middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // Verify that the middleware from MwExtension is present

@@ -271,7 +271,7 @@ impl JokowayExtension for CompressExtension {
     fn init(
         &self,
         _server: &mut Server,
-        _app_ctx: &mut jokoway_core::Context,
+        _app_ctx: &mut jokoway_core::AppContext,
         middlewares: &mut Vec<std::sync::Arc<dyn jokoway_core::JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // We don't really need Context here for compression, but we keep the signature consistent
@@ -565,7 +565,8 @@ impl JokowayMiddleware for CompressMiddleware {
         &self,
         session: &mut Session,
         ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::Context,
+        _app_ctx: &jokoway_core::AppContext,
+        _request_ctx: &jokoway_core::RequestContext,
     ) -> Result<bool, Box<Error>> {
         let req_header = session.req_header_mut();
 
@@ -586,7 +587,8 @@ impl JokowayMiddleware for CompressMiddleware {
         _session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::Context,
+        _app_ctx: &jokoway_core::AppContext,
+        _request_ctx: &jokoway_core::RequestContext,
     ) -> Result<(), Box<Error>> {
         if let Some(algo) = ctx.compression_algo {
             // Check if response is already compressed (shouldn't be if we removed Accept-Encoding, but upstream might force it)
@@ -704,7 +706,8 @@ impl JokowayMiddleware for CompressMiddleware {
         body: &mut Option<bytes::Bytes>,
         end_of_stream: bool,
         ctx: &mut Self::CTX,
-        _app_ctx: &jokoway_core::Context,
+        _app_ctx: &jokoway_core::AppContext,
+        _request_ctx: &jokoway_core::RequestContext,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         if !ctx.should_compress || ctx.compression_algo.is_none() {
             return Ok(None);

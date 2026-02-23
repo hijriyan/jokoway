@@ -12,6 +12,7 @@ pingora = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 arc-swap = { workspace = true }
+dashmap = { workspace = true }
 boring = { workspace = true }
 flate2 = { workspace = true }
 serde = { workspace = true }

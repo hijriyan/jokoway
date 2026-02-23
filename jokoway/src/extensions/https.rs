@@ -71,7 +71,7 @@ impl JokowayExtension for HttpsExtension {
     fn init(
         &self,
         server: &mut pingora::server::Server,
-        app_ctx: &mut Context,
+        app_ctx: &mut AppContext,
         middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = app_ctx.get::<JokowayConfig>().ok_or_else(|| {

@@ -173,7 +173,7 @@ impl JokowayExtension for DnsExtension {
     fn init(
         &self,
         _server: &mut pingora::server::Server,
-        app_ctx: &mut Context,
+        app_ctx: &mut AppContext,
         _middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(config) = app_ctx.get::<JokowayConfig>() {

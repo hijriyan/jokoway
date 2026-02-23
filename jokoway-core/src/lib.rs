@@ -10,6 +10,7 @@ pub mod websocket;
 
 use arc_swap::ArcSwap;
 use bytes::Bytes;
+use dashmap::DashMap;
 use pingora::Error;
 use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
@@ -18,20 +19,47 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Core application context shared across extensions and middlewares
+/// Shared interface for type-safe, heterogeneous key-value storage.
+///
+/// Both [`AppContext`] and [`RequestContext`] implement this trait,
+/// allowing generic helper functions to work with either context type.
+pub trait Context: Send + Sync {
+    /// Insert a value of any type into the context.
+    fn insert<T: Any + Send + Sync>(&self, value: T);
+
+    /// Retrieve a value by its type from the context.
+    fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>>;
+
+    /// Remove and return a value by its type from the context.
+    fn remove<T: Any + Send + Sync>(&self) -> Option<Arc<T>>;
+}
+
+/// Global application context, shared across all requests.
+///
+/// Uses [`ArcSwap`] internally for lock-free concurrent reads,
+/// making it ideal for configuration or state that is written rarely
+/// (e.g., at startup) but read on every request from many threads.
 #[derive(Clone)]
-pub struct Context {
+pub struct AppContext {
     data: Arc<ArcSwap<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
-impl Context {
+impl AppContext {
     pub fn new() -> Self {
         Self {
             data: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         }
     }
+}
 
-    pub fn insert<T: Any + Send + Sync>(&self, value: T) {
+impl Default for AppContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Context for AppContext {
+    fn insert<T: Any + Send + Sync>(&self, value: T) {
         let value = Arc::new(value) as Arc<dyn Any + Send + Sync>;
         self.data.rcu(move |old| {
             let mut next = (**old).clone();
@@ -40,13 +68,13 @@ impl Context {
         });
     }
 
-    pub fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+    fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
         let data = self.data.load();
         let value = data.get(&TypeId::of::<T>()).cloned()?;
         Arc::downcast::<T>(value).ok()
     }
 
-    pub fn remove<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+    fn remove<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
         let mut removed: Option<Arc<dyn Any + Send + Sync>> = None;
         self.data.rcu(|old| {
             let mut next = (**old).clone();
@@ -57,9 +85,43 @@ impl Context {
     }
 }
 
-impl Default for Context {
+/// Per-request context for sharing state between middlewares within a single request lifecycle.
+///
+/// Uses [`DashMap`] internally for fast, zero-clone inserts and removes.
+/// Created fresh for every HTTP session and dropped when the request completes.
+#[derive(Clone)]
+pub struct RequestContext {
+    data: Arc<DashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+}
+
+impl RequestContext {
+    pub fn new() -> Self {
+        Self {
+            data: Arc::new(DashMap::new()),
+        }
+    }
+}
+
+impl Default for RequestContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Context for RequestContext {
+    fn insert<T: Any + Send + Sync>(&self, value: T) {
+        let value = Arc::new(value) as Arc<dyn Any + Send + Sync>;
+        self.data.insert(TypeId::of::<T>(), value);
+    }
+
+    fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        let value = self.data.get(&TypeId::of::<T>())?.clone();
+        Arc::downcast::<T>(value).ok()
+    }
+
+    fn remove<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        let (_, value) = self.data.remove(&TypeId::of::<T>())?;
+        Arc::downcast::<T>(value).ok()
     }
 }
 
@@ -100,7 +162,8 @@ pub trait JokowayMiddleware: Send + Sync {
         &self,
         _session: &mut Session,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<bool, Box<Error>> {
         Ok(false)
     }
@@ -117,7 +180,8 @@ pub trait JokowayMiddleware: Send + Sync {
         _session: &mut Session,
         _upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<(), Box<Error>> {
         Ok(())
     }
@@ -137,7 +201,8 @@ pub trait JokowayMiddleware: Send + Sync {
         _body: &mut Option<Bytes>,
         _end_of_stream: bool,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         Ok(None)
     }
@@ -154,7 +219,8 @@ pub trait JokowayMiddleware: Send + Sync {
         _body: &mut Option<Bytes>,
         _end_of_stream: bool,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> Result<(), Box<Error>> {
         Ok(())
     }
@@ -169,7 +235,8 @@ pub trait JokowayMiddleware: Send + Sync {
         _direction: crate::websocket::WebsocketDirection,
         frame: crate::websocket::WsFrame,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketMessageAction {
         crate::websocket::WebsocketMessageAction::Forward(frame)
     }
@@ -184,7 +251,8 @@ pub trait JokowayMiddleware: Send + Sync {
         _direction: crate::websocket::WebsocketDirection,
         _error: crate::websocket::WebsocketError,
         _ctx: &mut Self::CTX,
-        _app_ctx: &Context,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketErrorAction {
         crate::websocket::WebsocketErrorAction::PassThrough
     }
@@ -207,7 +275,8 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         &self,
         session: &mut Session,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<bool, Box<Error>>;
 
     async fn upstream_response_filter_dyn(
@@ -215,7 +284,8 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<(), Box<Error>>;
 
     fn response_body_filter_dyn(
@@ -224,7 +294,8 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<Option<std::time::Duration>, Box<Error>>;
 
     async fn request_body_filter_dyn(
@@ -233,7 +304,8 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<(), Box<Error>>;
 
     fn on_websocket_message_dyn(
@@ -241,7 +313,8 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         direction: crate::websocket::WebsocketDirection,
         frame: crate::websocket::WsFrame,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketMessageAction;
 
     fn on_websocket_error_dyn(
@@ -249,7 +322,8 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         direction: crate::websocket::WebsocketDirection,
         error: crate::websocket::WebsocketError,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketErrorAction;
 }
 
@@ -272,12 +346,13 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         &self,
         session: &mut Session,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<bool, Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.request_filter(session, ctx, app_ctx).await
+        self.request_filter(session, ctx, app_ctx, request_ctx).await
     }
 
     async fn upstream_response_filter_dyn(
@@ -285,12 +360,13 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<(), Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.upstream_response_filter(session, upstream_response, ctx, app_ctx)
+        self.upstream_response_filter(session, upstream_response, ctx, app_ctx, request_ctx)
             .await
     }
 
@@ -300,12 +376,13 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.response_body_filter(session, body, end_of_stream, ctx, app_ctx)
+        self.response_body_filter(session, body, end_of_stream, ctx, app_ctx, request_ctx)
     }
 
     async fn request_body_filter_dyn(
@@ -314,12 +391,13 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         body: &mut Option<Bytes>,
         end_of_stream: bool,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> Result<(), Box<Error>> {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.request_body_filter(session, body, end_of_stream, ctx, app_ctx)
+        self.request_body_filter(session, body, end_of_stream, ctx, app_ctx, request_ctx)
             .await
     }
 
@@ -328,12 +406,13 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         direction: crate::websocket::WebsocketDirection,
         frame: crate::websocket::WsFrame,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketMessageAction {
         let ctx = ctx
             .downcast_mut::<T::CTX>()
             .expect("Invalid context type for JokowayMiddleware");
-        self.on_websocket_message(direction, frame, ctx, app_ctx)
+        self.on_websocket_message(direction, frame, ctx, app_ctx, request_ctx)
     }
 
     fn on_websocket_error_dyn(
@@ -341,12 +420,13 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         direction: crate::websocket::WebsocketDirection,
         error: crate::websocket::WebsocketError,
         ctx: &mut (dyn Any + Send + Sync),
-        app_ctx: &Context,
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketErrorAction {
         let ctx = ctx
             .downcast_mut::<T::CTX>()
             .expect("Invalid context type for JokowayMiddleware");
-        self.on_websocket_error(direction, error, ctx, app_ctx)
+        self.on_websocket_error(direction, error, ctx, app_ctx, request_ctx)
     }
 }
 
@@ -369,7 +449,7 @@ pub trait JokowayExtension: Send + Sync {
     fn init(
         &self,
         _server: &mut Server,
-        _app_ctx: &mut Context,
+        _app_ctx: &mut AppContext,
         _middlewares: &mut Vec<Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
