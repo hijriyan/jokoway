@@ -4,12 +4,14 @@ services:
   httpbin:
     image: ghcr.io/mccutchen/go-httpbin:2.20
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
 
   jokoway:
     image: ghcr.io/hijriyan/jokoway:latest
     shm_size: "512mb"
     network_mode: "host"
+    depends_on:
+      - httpbin
     volumes:
       - ./jokoway.yml:/etc/jokoway/jokoway.yml
       - jokoway-data:/opt/jokoway

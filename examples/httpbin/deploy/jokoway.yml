@@ -20,7 +20,7 @@ jokoway:
   upstreams:
     - name: httpbin_upstream
       servers:
-        - host: httpbin:8080
+        - host: 127.0.0.1:8080
 
   services:
     - name: httpbin_service
