@@ -1,4 +1,4 @@
-use crate::models::ForwardedInfo;
+use crate::models::{ForwardedInfo, XFF, XFH, XFP};
 use pingora::http::RequestHeader;
 use std::net::IpAddr;
 
@@ -23,19 +23,19 @@ pub fn parse_legacy_headers(
 ) -> ForwardedInfo {
     let mut info = ForwardedInfo::default();
 
-    if let Some(xff) = req.headers.get("x-forwarded-for") {
+    if let Some(xff) = req.headers.get(XFF) {
         if let Ok(s) = xff.to_str() {
             info.for_nodes = Some(s.into());
         }
     }
 
-    if let Some(xfh) = req.headers.get("x-forwarded-host") {
+    if let Some(xfh) = req.headers.get(XFH) {
         if let Ok(s) = xfh.to_str() {
             parse_host(s.trim(), &mut info);
         }
     }
 
-    if let Some(xfp) = req.headers.get("x-forwarded-proto") {
+    if let Some(xfp) = req.headers.get(XFP) {
         if let Ok(s) = xfp.to_str() {
             parse_proto(s.trim(), &mut info);
         }

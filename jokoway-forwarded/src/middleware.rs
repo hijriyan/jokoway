@@ -1,15 +1,10 @@
 use crate::config::{ForwardedSettings, TrustedProxies};
+use crate::models::{XFF, XFH, XFP};
 use crate::parser::parse_legacy_headers;
 use async_trait::async_trait;
-use http::header::HeaderName;
 use jokoway_core::{AppContext, Context, JokowayMiddleware, RequestContext};
 use pingora::Error;
 use pingora::proxy::Session;
-
-const XFF: HeaderName = HeaderName::from_static("x-forwarded-for");
-const XFH: HeaderName = HeaderName::from_static("x-forwarded-host");
-const XFP: HeaderName = HeaderName::from_static("x-forwarded-proto");
-const FORWARDED_HEADERS: [HeaderName; 3] = [XFF, XFH, XFP];
 
 pub struct ForwardedMiddleware {
     pub settings: ForwardedSettings,
@@ -97,9 +92,9 @@ impl JokowayMiddleware for ForwardedMiddleware {
 
         // Strip ALL incoming forwarded headers — we re-inject our own below.
         let req_header = session.req_header_mut();
-        for h in &FORWARDED_HEADERS {
-            req_header.remove_header(h);
-        }
+        req_header.remove_header(&XFF);
+        req_header.remove_header(&XFH);
+        req_header.remove_header(&XFP);
 
         // Legacy X-Forwarded-* headers.
         if let Some(nodes) = &info.for_nodes {

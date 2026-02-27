@@ -1,3 +1,4 @@
+use http::header::HeaderName;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -13,3 +14,7 @@ impl ForwardedInfo {
         Self::default()
     }
 }
+
+pub const XFF: HeaderName = HeaderName::from_static("x-forwarded-for");
+pub const XFH: HeaderName = HeaderName::from_static("x-forwarded-host");
+pub const XFP: HeaderName = HeaderName::from_static("x-forwarded-proto");
