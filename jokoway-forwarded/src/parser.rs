@@ -19,6 +19,7 @@ pub fn parse_legacy_headers(
     client_ip: Option<&IpAddr>,
     trusted_proxies_is_empty: bool,
     client_proto: &str,
+    current_host: Option<&str>,
 ) -> ForwardedInfo {
     let mut info = ForwardedInfo::default();
 
@@ -66,26 +67,24 @@ pub fn parse_legacy_headers(
         }
     }
 
-    if let Some(s) = req.headers.get("host") {
-        if let Ok(s) = s.to_str() {
-            if trusted_proxies_is_empty {
-                info.host = Some(s.into());
-                log::debug!(
-                    "[trusted_proxies_is_empty] set X-Forwarded-Host from host header: {}",
-                    s
-                );
-            } else if info.host.is_none() {
-                info.host = Some(s.into());
-                log::debug!(
-                    "[trusted_proxies_is_not_empty] X-Forwarded-Host is none, set from host header: {}",
-                    s
-                );
-            } else {
-                log::debug!(
-                    "[trusted_proxies_is_not_empty] X-Forwarded-Host is not none, skip set from host header: {}",
-                    s
-                );
-            }
+    if let Some(s) = current_host {
+        if trusted_proxies_is_empty {
+            info.host = Some(s.into());
+            log::debug!(
+                "[trusted_proxies_is_empty] set X-Forwarded-Host from host header: {}",
+                s
+            );
+        } else if info.host.is_none() {
+            info.host = Some(s.into());
+            log::debug!(
+                "[trusted_proxies_is_not_empty] X-Forwarded-Host is none, set from host header: {}",
+                s
+            );
+        } else {
+            log::debug!(
+                "[trusted_proxies_is_not_empty] X-Forwarded-Host is not none, skip set from host header: {}",
+                s
+            );
         }
     }
 
@@ -124,9 +123,24 @@ mod tests {
         req.insert_header("x-forwarded-host", "example.com")
             .unwrap();
 
-        let info = parse_legacy_headers(&req, None, false, "http");
+        let info = parse_legacy_headers(&req, None, false, "http", None);
         assert_eq!(info.for_nodes, Some("1.2.3.4, 5.6.7.8".into()));
         assert_eq!(info.proto, Some("https".into()));
         assert_eq!(info.host, Some("example.com".into()));
+    }
+
+    #[test]
+    fn test_edge_proxy() {
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        req.insert_header("x-forwarded-for", "1.2.3.4, 5.6.7.8")
+            .unwrap();
+        req.insert_header("x-forwarded-proto", "https").unwrap();
+        req.insert_header("x-forwarded-host", "example.com")
+            .unwrap();
+
+        let info = parse_legacy_headers(&req, None, true, "http", Some("custom.com"));
+        assert_eq!(info.for_nodes, Some("1.2.3.4, 5.6.7.8".into()));
+        assert_eq!(info.proto, Some("http".into()));
+        assert_eq!(info.host, Some("custom.com".into()));
     }
 }

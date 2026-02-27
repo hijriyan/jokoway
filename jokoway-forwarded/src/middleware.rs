@@ -69,12 +69,27 @@ impl JokowayMiddleware for ForwardedMiddleware {
         } else {
             "http"
         };
+        // FIXME: Should we prioritize the host from the URI over the header?
+        let uri_host = session.req_header().uri.host();
+        let header_host = session
+            .req_header()
+            .headers
+            .get("Host")
+            .and_then(|v| v.to_str().ok());
+        let current_host: Option<&str> = if let Some(host) = uri_host {
+            Some(host)
+        } else if let Some(host) = header_host {
+            Some(host)
+        } else {
+            None
+        };
 
         let info = parse_legacy_headers(
             session.req_header(),
             client_ip.as_ref(),
             trusted_proxies_is_empty,
             client_proto,
+            current_host,
         );
 
         // Store info in request context for downstream consumers.
