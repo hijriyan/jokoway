@@ -37,10 +37,6 @@ impl JokowayMiddleware for ForwardedMiddleware {
         _app_ctx: &AppContext,
         request_ctx: &RequestContext,
     ) -> Result<bool, Box<Error>> {
-        if !self.settings.enabled {
-            return Ok(false);
-        }
-
         // Extract the direct client IP from the connection.
         let client_ip = session
             .client_addr()
