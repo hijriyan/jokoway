@@ -17,3 +17,4 @@ serde = { workspace = true }
 serde_yaml = { workspace = true }
 iprange = "0.6"
 ipnet = "2"
+http.workspace = true

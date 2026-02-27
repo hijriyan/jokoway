@@ -1,11 +1,15 @@
-use std::i16;
-
 use crate::config::{ForwardedSettings, TrustedProxies};
 use crate::parser::parse_legacy_headers;
 use async_trait::async_trait;
+use http::header::HeaderName;
 use jokoway_core::{AppContext, Context, JokowayMiddleware, RequestContext};
-use pingora::proxy::Session;
 use pingora::Error;
+use pingora::proxy::Session;
+
+const XFF: HeaderName = HeaderName::from_static("x-forwarded-for");
+const XFH: HeaderName = HeaderName::from_static("x-forwarded-host");
+const XFP: HeaderName = HeaderName::from_static("x-forwarded-proto");
+const FORWARDED_HEADERS: [HeaderName; 3] = [XFF, XFH, XFP];
 
 pub struct ForwardedMiddleware {
     pub settings: ForwardedSettings,
@@ -82,19 +86,19 @@ impl JokowayMiddleware for ForwardedMiddleware {
 
         // Strip ALL incoming forwarded headers — we re-inject our own below.
         let req_header = session.req_header_mut();
-        for h in &["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"] {
-            req_header.remove_header(*h);
+        for h in &FORWARDED_HEADERS {
+            req_header.remove_header(h);
         }
 
         // Legacy X-Forwarded-* headers.
         if let Some(nodes) = &info.for_nodes {
-            let _ = req_header.insert_header("x-forwarded-for", nodes.as_str());
+            req_header.insert_header(XFF, nodes.as_ref())?;
         }
         if let Some(host) = &info.host {
-            let _ = req_header.insert_header("x-forwarded-host", host.as_str());
+            req_header.insert_header(XFH, host.as_ref())?;
         }
         if let Some(proto) = &info.proto {
-            let _ = req_header.insert_header("x-forwarded-proto", proto.as_str());
+            req_header.insert_header(XFP, proto.as_ref())?;
         }
 
         Ok(false)

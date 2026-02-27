@@ -464,8 +464,8 @@ async fn test_forwarded_middleware_request_ctx_extraction() {
         "ForwardedInfo should have been extracted by the reader middleware"
     );
     let info = info_opt.unwrap();
-    assert_eq!(info.for_nodes, Some("127.0.0.1".to_string()));
-    assert_eq!(info.host, Some("kuli.dev".to_string()));
-    assert_eq!(info.proto, Some("http".to_string()));
-    assert_eq!(info.client_ip, Some("127.0.0.1".to_string()));
+    assert_eq!(info.for_nodes, Some("127.0.0.1".into()));
+    assert_eq!(info.host, Some("kuli.dev".into()));
+    assert_eq!(info.proto, Some("http".into()));
+    assert_eq!(info.client_ip, Some("127.0.0.1".into()));
 }

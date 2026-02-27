@@ -22,7 +22,7 @@ pub struct ForwardedExtension;
 #[async_trait]
 impl JokowayExtension for ForwardedExtension {
     fn order(&self) -> i16 {
-        999
+        0
     }
 
     fn init(
