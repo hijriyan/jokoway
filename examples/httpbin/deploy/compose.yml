@@ -9,9 +9,7 @@ services:
   jokoway:
     image: ghcr.io/hijriyan/jokoway:latest
     shm_size: "512mb"
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: "host"
     volumes:
       - ./jokoway.yml:/etc/jokoway/jokoway.yml
       - jokoway-data:/opt/jokoway
