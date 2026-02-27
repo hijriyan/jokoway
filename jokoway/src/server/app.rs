@@ -12,6 +12,9 @@ use jokoway_core::{AppContext, Context};
 use pingora::server::Server;
 use std::sync::Arc;
 
+#[cfg(feature = "forwarded-extension")]
+use jokoway_forwarded::ForwardedExtension;
+
 use pingora::server::configuration::Opt;
 
 pub struct App {
@@ -90,6 +93,12 @@ impl App {
                     api_settings.clone(),
                 ));
             }
+        }
+
+        // Register forwarded extension if configured
+        #[cfg(feature = "forwarded-extension")]
+        {
+            app.add_extension(ForwardedExtension);
         }
 
         app

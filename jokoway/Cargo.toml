@@ -32,6 +32,7 @@ hickory-resolver = { workspace = true }
 # optional dependencies
 jokoway-acme = { path = "../jokoway-acme", version = "0.1.0-alpha.5", optional = true }
 jokoway-compress = { path = "../jokoway-compress", version = "0.1.0-alpha.5", optional = true }
+jokoway-forwarded = { path = "../jokoway-forwarded", version = "0.1.0-alpha.1", optional = true }
 axum = { workspace = true, optional = true }
 tower_governor = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
@@ -40,7 +41,12 @@ utoipa-swagger-ui = { workspace = true, optional = true }
 matchit = { workspace = true }
 
 [features]
-default = ["compress-extension", "api-extension", "acme-extension"]
+default = [
+    "compress-extension",
+    "api-extension",
+    "acme-extension",
+    "forwarded-extension",
+]
 compress-extension = [
     "dep:jokoway-compress",
     "compress-zstd",
@@ -58,6 +64,7 @@ acme-extension = ["dep:jokoway-acme"]
 acme_tests = ["acme-extension", "jokoway-acme/pebble_tests"]
 compress-zstd = ["jokoway-compress/zstd"]
 compress-brotli = ["jokoway-compress/brotli"]
+forwarded-extension = ["dep:jokoway-forwarded"]
 
 [dev-dependencies]
 futures-util = "0.3.31"

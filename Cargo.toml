@@ -6,6 +6,7 @@ members = [
     "jokoway-compress",
     "jokoway-rules",
     "jokoway-transformer",
+    "jokoway-forwarded",
 ]
 resolver = "2"
 

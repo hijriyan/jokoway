@@ -14,6 +14,10 @@ use crate::error::JokowayError;
 use pingora::server::Server;
 
 impl JokowayExtension for HttpExtension {
+    fn order(&self) -> i16 {
+        -100
+    }
+
     fn init(
         &self,
         server: &mut Server,

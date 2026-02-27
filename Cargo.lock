@@ -1652,6 +1652,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 
 [[package]]
+name = "iprange"
+version = "0.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37209be0ad225457e63814401415e748e2453a5297f9b637338f5fb8afa4ec00"
+dependencies = [
+ "ipnet",
+]
+
+[[package]]
 name = "iri-string"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1757,6 +1766,7 @@ dependencies = [
  "jokoway-acme",
  "jokoway-compress",
  "jokoway-core",
+ "jokoway-forwarded",
  "jokoway-rules",
  "jokoway-transformer",
  "log",
@@ -1834,6 +1844,20 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "utoipa",
+]
+
+[[package]]
+name = "jokoway-forwarded"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "async-trait",
+ "ipnet",
+ "iprange",
+ "jokoway-core",
+ "log",
+ "pingora",
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -3455,7 +3479,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

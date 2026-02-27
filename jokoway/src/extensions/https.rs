@@ -68,6 +68,10 @@ fn parse_ssl_version(version: &str) -> Option<SslVersion> {
 }
 
 impl JokowayExtension for HttpsExtension {
+    fn order(&self) -> i16 {
+        -100
+    }
+
     fn init(
         &self,
         server: &mut pingora::server::Server,

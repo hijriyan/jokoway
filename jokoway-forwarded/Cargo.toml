@@ -1,0 +1,19 @@
+[package]
+name = "jokoway-forwarded"
+version = "0.1.0-alpha.1"
+description = "Forwarded middleware for Jokoway"
+edition = "2024"
+license = "MIT"
+authors = ["Hijriyan <april@kuli.dev>"]
+readme = "README.md"
+repository = "https://github.com/hijriyan/jokoway"
+
+[dependencies]
+jokoway-core = { path = "../jokoway-core" }
+pingora = { workspace = true }
+async-trait = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+iprange = "0.6"
+ipnet = "2"
