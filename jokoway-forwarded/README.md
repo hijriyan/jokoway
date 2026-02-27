@@ -19,7 +19,7 @@ jokoway:
       - "[IPV6_ADDRESS]"
 ```
 
-[^1]: If the `trusted_proxies` configuration is not set, it means that jokoway acts as an edge proxy. In this case, Jokoway will “overwrite” the X-forwarded-* headers according to the current client request information (such as the IP address and `Host` header) then pass it to upstream. This is useful for simple deployments where Jokoway is the only proxy in front of the backend services.
+If the `trusted_proxies` configuration is not set, it means that jokoway acts as an edge proxy. In this case, Jokoway will “overwrite” the X-forwarded-* headers according to the current client request information (such as the IP address and `Host` header) then pass it to upstream. This is useful for simple deployments where Jokoway is the only proxy in front of the backend services.
 
 ```mermaid
 graph TD
