@@ -1,5 +1,5 @@
 pub mod config {
-    #[cfg(feature = "acme-extension")]
+    #[cfg(feature = "acme")]
     pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};
     pub use jokoway_core::config::*;
 }

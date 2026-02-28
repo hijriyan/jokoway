@@ -134,7 +134,7 @@ jokoway:
   ssl: *ssl_settings
 
   # ACME (Let's Encrypt) Configuration (optional)
-  # implementation depends on 'acme-extension' feature
+  # implementation depends on 'acme' feature
   acme:
     # ACME Directory URL
     # Staging: "https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -152,7 +152,7 @@ jokoway:
     challenge: "http-01"
 
   # API Management Configuration (optional)
-  # implementation depends on 'api-extension' feature
+  # implementation depends on 'api' feature
   api:
     # Address to listen on for the management API (optional)
     listen: "127.0.0.1:9090"

@@ -41,30 +41,21 @@ utoipa-swagger-ui = { workspace = true, optional = true }
 matchit = { workspace = true }
 
 [features]
-default = [
-    "compress-extension",
-    "api-extension",
-    "acme-extension",
-    "forwarded-extension",
-]
-compress-extension = [
-    "dep:jokoway-compress",
-    "compress-zstd",
-    "compress-brotli",
-]
-api-extension = [
+default = ["compress", "api", "acme", "forwarded"]
+compress = ["dep:jokoway-compress", "compress-zstd", "compress-brotli"]
+api = [
     "dep:axum",
     "dep:tower_governor",
     "dep:base64",
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
-    "jokoway-core/api-extension",
+    "jokoway-core/api",
 ]
-acme-extension = ["dep:jokoway-acme"]
-acme_tests = ["acme-extension", "jokoway-acme/pebble_tests"]
+acme = ["dep:jokoway-acme"]
+acme_tests = ["acme", "jokoway-acme/pebble_tests"]
 compress-zstd = ["jokoway-compress/zstd"]
 compress-brotli = ["jokoway-compress/brotli"]
-forwarded-extension = ["dep:jokoway-forwarded"]
+forwarded = ["dep:jokoway-forwarded"]
 
 [dev-dependencies]
 futures-util = "0.3.31"

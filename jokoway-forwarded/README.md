@@ -4,7 +4,7 @@ Forwarded middleware for Jokoway
 
 ## Installation
 
-by default this extension already included in `jokoway` crate via `forwarded-extension` feature.
+by default this extension already included in `jokoway` crate via `forwarded` feature.
 
 ## Configuration
 

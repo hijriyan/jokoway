@@ -1,4 +1,4 @@
-#[cfg(feature = "api-extension")]
+#[cfg(feature = "api")]
 pub mod api;
 pub mod dns;
 pub mod http;

@@ -6,13 +6,13 @@ use crate::prelude::*;
 use crate::server::service::ServiceManager;
 
 use crate::server::upstream::UpstreamExtension;
-#[cfg(feature = "acme-extension")]
+#[cfg(feature = "acme")]
 use jokoway_acme::{AcmeConfigExt, AcmeExtension};
 use jokoway_core::{AppContext, Context};
 use pingora::server::Server;
 use std::sync::Arc;
 
-#[cfg(feature = "forwarded-extension")]
+#[cfg(feature = "forwarded")]
 use jokoway_forwarded::ForwardedExtension;
 
 use pingora::server::configuration::Opt;
@@ -42,7 +42,7 @@ impl App {
 
         // Register ACME extension if configured
         // Must be added before HttpsExtension so HttpsExtension can find AcmeManager in Context
-        #[cfg(feature = "acme-extension")]
+        #[cfg(feature = "acme")]
         if let Some(acme_settings) = app.config.acme() {
             let acme_ext = AcmeExtension::new(&acme_settings);
             app.add_extension(acme_ext);
@@ -53,7 +53,7 @@ impl App {
         app.add_extension(HttpExtension);
         app.add_extension(HttpsExtension);
 
-        #[cfg(feature = "compress-extension")]
+        #[cfg(feature = "compress")]
         {
             use jokoway_compress::{
                 BrotliConfig, CompressExtension, CompressionConfig, CompressionConfigExt,
@@ -84,7 +84,7 @@ impl App {
         }
 
         // Register API extension if configured
-        #[cfg(feature = "api-extension")]
+        #[cfg(feature = "api")]
         {
             if let Some(api_settings) = &app.config.api
                 && api_settings.listen.is_some()
@@ -96,7 +96,7 @@ impl App {
         }
 
         // Register forwarded extension if configured
-        #[cfg(feature = "forwarded-extension")]
+        #[cfg(feature = "forwarded")]
         {
             app.add_extension(ForwardedExtension);
         }

@@ -11,7 +11,7 @@ This crate integrates `instant-acme` with `pingora` (via `jokoway-core`) to hand
 
 ## Installation
 
-It's already included in main crate `jokoway` via `acme-extension` feature.
+It's already included in main crate `jokoway` via `acme` feature.
 
 ## Configuration
 

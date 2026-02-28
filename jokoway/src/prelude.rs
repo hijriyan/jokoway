@@ -6,7 +6,7 @@
 pub use crate::error::JokowayError;
 pub use crate::server::context::{AppContext, Context, ProxyContext, RequestContext};
 pub use crate::server::proxy::JokowayProxy;
-#[cfg(feature = "acme-extension")]
+#[cfg(feature = "acme")]
 pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};
 pub use jokoway_core::config::*;
 pub use jokoway_core::tls::{TlsCallback, TlsCallbackHandler};

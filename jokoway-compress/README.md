@@ -41,7 +41,7 @@ jokoway:
 
 ## Installation
 
-It's already included in main crate `jokoway` via `compress-extension` feature.
+It's already included in main crate `jokoway` via `compress` feature.
 
 ## Defaults
 

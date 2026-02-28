@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[cfg(feature = "api-extension")]
+#[cfg(feature = "api")]
 use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,7 +73,7 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct PeerOptions {
     pub read_timeout: Option<u64>,
@@ -136,7 +136,7 @@ impl Default for OpenApiSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Upstream {
     pub name: String,
@@ -148,7 +148,7 @@ pub struct Upstream {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct UpstreamServer {
     pub host: String,
@@ -158,7 +158,7 @@ pub struct UpstreamServer {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 pub enum ServiceProtocol {
     #[serde(rename = "http")]
     Http,
@@ -171,7 +171,7 @@ pub enum ServiceProtocol {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Service {
     pub name: String,
@@ -182,7 +182,7 @@ pub struct Service {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Route {
     pub name: String,
@@ -211,7 +211,7 @@ fn default_healthy_threshold() -> u32 {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum HealthCheckType {
     Http,
@@ -220,7 +220,7 @@ pub enum HealthCheckType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[cfg_attr(feature = "api-extension", derive(ToSchema))]
+#[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct HealthCheckConfig {
     #[serde(rename = "type")]
