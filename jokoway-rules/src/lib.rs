@@ -1,5 +1,6 @@
 pub mod matcher;
 pub mod parser;
+pub mod prelude;
 pub mod registry;
 
 pub use matcher::Matcher;

@@ -3,7 +3,7 @@ use jokoway::config::models::{
     JokowayConfig, Route, Service, ServiceProtocol, Upstream, UpstreamServer,
 };
 
-use jokoway::prelude::*;
+use jokoway::prelude::core::*;
 use jokoway::server::app::App;
 use jokoway::server::context::{AppContext, Context, RequestContext};
 use pingora::proxy::Session;
@@ -286,7 +286,8 @@ async fn test_websocket_middleware() {
 #[test]
 fn test_manual_downcast() {
     let middleware = TestWsMiddleware;
-    let dyn_middleware: Arc<dyn jokoway::prelude::JokowayMiddlewareDyn> = Arc::new(middleware);
+    let dyn_middleware: Arc<dyn jokoway::prelude::core::JokowayMiddlewareDyn> =
+        Arc::new(middleware);
 
     let mut ctx = dyn_middleware.new_ctx_dyn();
     let frame = WsFrame {
@@ -310,7 +311,8 @@ fn test_manual_downcast() {
 #[tokio::test]
 async fn test_manual_http_downcast() {
     let middleware = TestJokowayMiddleware;
-    let dyn_middleware: Arc<dyn jokoway::prelude::JokowayMiddlewareDyn> = Arc::new(middleware);
+    let dyn_middleware: Arc<dyn jokoway::prelude::core::JokowayMiddlewareDyn> =
+        Arc::new(middleware);
 
     let mut ctx = dyn_middleware.new_ctx_dyn();
 
@@ -340,7 +342,7 @@ fn test_websocket_middleware_ordering() {
         }
     }
 
-    let mut middlewares: Vec<Arc<dyn jokoway::prelude::JokowayMiddlewareDyn>> = vec![
+    let mut middlewares: Vec<Arc<dyn jokoway::prelude::core::JokowayMiddlewareDyn>> = vec![
         Arc::new(OrderedWsMiddleware { order: 10 }),
         Arc::new(OrderedWsMiddleware { order: 0 }),
         Arc::new(OrderedWsMiddleware { order: -10 }),

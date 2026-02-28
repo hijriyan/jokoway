@@ -1,5 +1,5 @@
 use crate::config::ConfigBuilder;
-use crate::prelude::*;
+use crate::prelude::core::*;
 use crate::server::app::App;
 
 pub fn jokoway_main(extensions: Vec<Box<dyn JokowayExtension>>) {

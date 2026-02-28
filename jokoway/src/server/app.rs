@@ -2,7 +2,7 @@ use crate::config::models::{JokowayConfig, ServerConf};
 use crate::extensions::dns::DnsExtension;
 use crate::extensions::http::HttpExtension;
 use crate::extensions::https::HttpsExtension;
-use crate::prelude::*;
+use crate::prelude::core::*;
 use crate::server::service::ServiceManager;
 
 use crate::server::upstream::UpstreamExtension;
@@ -154,7 +154,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::JokowayMiddleware;
+    use crate::prelude::core::JokowayMiddleware;
     use async_trait::async_trait;
 
     struct EarlyMiddleware;
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_extension_ordering() {
-        use crate::prelude::JokowayExtension;
+        use crate::prelude::core::JokowayExtension;
 
         struct OrderedExtension {
             order: i16,
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_extension_returns_middleware() {
-        use crate::prelude::JokowayExtension;
+        use crate::prelude::core::JokowayExtension;
         use crate::server::app::App;
         use pingora::server::configuration::Opt;
 

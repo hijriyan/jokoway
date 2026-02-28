@@ -1,7 +1,7 @@
 use crate::config::models::JokowayConfig;
 use crate::error::JokowayError;
 use crate::extensions::dns::DnsResolver;
-use crate::prelude::*;
+use crate::prelude::{core::*, *};
 use crate::server::context::Context;
 use crate::server::discovery::JokowayUpstreamDiscovery;
 use crate::server::proxy::{CachedPeerConfig, merge_peer_options};

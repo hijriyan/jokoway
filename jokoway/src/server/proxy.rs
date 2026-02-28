@@ -1,7 +1,7 @@
 use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions};
 use crate::error::JokowayError;
 
-use crate::prelude::*;
+use crate::prelude::core::*;
 use crate::server::context::{AppContext, Context, ProxyContext, RequestContext};
 use crate::server::router::Router;
 use crate::server::upstream::UpstreamManager;

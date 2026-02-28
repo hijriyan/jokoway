@@ -2,6 +2,7 @@ pub mod config;
 pub mod middleware;
 pub mod models;
 pub mod parser;
+pub mod prelude;
 
 use crate::config::ForwardedConfigExt;
 use async_trait::async_trait;

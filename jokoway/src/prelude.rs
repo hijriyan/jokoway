@@ -6,11 +6,30 @@
 pub use crate::error::JokowayError;
 pub use crate::server::context::{AppContext, Context, ProxyContext, RequestContext};
 pub use crate::server::proxy::JokowayProxy;
+
+pub mod core {
+    pub use jokoway_core::prelude::*;
+}
+
 #[cfg(feature = "acme")]
-pub use jokoway_acme::{AcmeChallengeType, AcmeSettings};
-pub use jokoway_core::config::*;
-pub use jokoway_core::tls::{TlsCallback, TlsCallbackHandler};
-pub use jokoway_core::websocket::{
-    WebsocketDirection, WebsocketError, WebsocketErrorAction, WebsocketMessageAction, WsFrame,
-};
-pub use jokoway_core::{JokowayExtension, JokowayMiddleware, JokowayMiddlewareDyn};
+pub mod acme {
+    pub use jokoway_acme::prelude::*;
+}
+
+#[cfg(feature = "compress")]
+pub mod compress {
+    pub use jokoway_compress::prelude::*;
+}
+
+#[cfg(feature = "forwarded")]
+pub mod forwarded {
+    pub use jokoway_forwarded::prelude::*;
+}
+
+pub mod rules {
+    pub use jokoway_rules::prelude::*;
+}
+
+pub mod transformer {
+    pub use jokoway_transformer::prelude::*;
+}

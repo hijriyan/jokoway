@@ -3,7 +3,7 @@
 use jokoway::config::models::{
     JokowayConfig, Route, Service, ServiceProtocol, SslSettings, Upstream, UpstreamServer,
 };
-use jokoway::prelude::{AcmeChallengeType, AcmeSettings};
+use jokoway::prelude::acme::{AcmeChallengeType, AcmeSettings};
 use jokoway::server::app::App;
 use pingora::prelude::Opt;
 use reqwest::Client;

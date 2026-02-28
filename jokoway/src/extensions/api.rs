@@ -1,6 +1,6 @@
 use crate::config::models::{ApiSettings, Service, ServiceProtocol, Upstream};
 use crate::extensions::dns::DnsResolver;
-use crate::prelude::*;
+use crate::prelude::{core::*, *};
 use crate::server::context::Context;
 use crate::server::service::{RuntimeService, ServiceManager};
 use crate::server::upstream::UpstreamManager;

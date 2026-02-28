@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod error;
+pub mod prelude;
 pub mod tls;
 pub mod websocket;
 
@@ -352,7 +353,8 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
         let ctx = ctx.downcast_mut::<T::CTX>().ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "Invalid context type")
         })?;
-        self.request_filter(session, ctx, app_ctx, request_ctx).await
+        self.request_filter(session, ctx, app_ctx, request_ctx)
+            .await
     }
 
     async fn upstream_response_filter_dyn(

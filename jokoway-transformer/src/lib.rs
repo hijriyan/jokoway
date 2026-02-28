@@ -1,5 +1,6 @@
 pub mod models;
 pub mod parser;
+pub mod prelude;
 pub mod registry;
 
 pub use models::{RequestTransformer, ResponseTransformer};
