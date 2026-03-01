@@ -9,6 +9,14 @@ default:
 print-version:
     @echo {{version}}
 
+# Generate CHANGELOG.md from full git history
+changelog:
+    git cliff -o CHANGELOG.md
+
+# Print only the latest unreleased changes
+changelog-latest:
+    git cliff --unreleased
+
 # Build docker image
 build-image:
     docker build -t {{image_name}}:{{version}} -t {{image_name}}:latest .

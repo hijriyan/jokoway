@@ -40,8 +40,21 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@git-cliff
+      - name: Generate release notes
+        id: changelog
+        run: |
+          notes=$(git cliff --latest --strip header)
+          # Use a delimiter to safely pass multi-line strings
+          delimiter="$(openssl rand -hex 8)"
+          echo "RELEASE_NOTES<<${delimiter}" >> "$GITHUB_OUTPUT"
+          echo "${notes}" >> "$GITHUB_OUTPUT"
+          echo "${delimiter}" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/create-gh-release-action@v1
         with:
+          body: ${{ steps.changelog.outputs.RELEASE_NOTES }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
   upload-assets:
