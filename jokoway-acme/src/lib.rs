@@ -776,6 +776,7 @@ impl BackgroundService for AcmeRenewalService {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(period_secs));
 
         // Immediate check on startup if configured for short intervals (testing)
+        #[cfg(feature = "pebble_tests")]
         if period_secs < 60 {
             self.renew_certificates().await;
         }
