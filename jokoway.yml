@@ -151,6 +151,10 @@ jokoway:
     # Default: "http-01"
     challenge: "http-01"
 
+    # Renewal interval in seconds (optional)
+    # Default: 86400 (1 day)
+    renewal_interval: 86400
+
   # API Management Configuration (optional)
   # implementation depends on 'api' feature
   api:
