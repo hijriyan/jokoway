@@ -99,7 +99,7 @@ impl JokowayExtension for HttpsExtension {
             JokowayProxy::new(router, Arc::new(app_ctx.clone()), middlewares.clone(), true)?;
 
         if let Some(ssl) = &config.ssl {
-            let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate(SslMethod::tls()) {
+            let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()) {
                 Ok(acceptor) => acceptor,
                 Err(e) => {
                     log::error!("Failed to create SSL acceptor: {}", e);
