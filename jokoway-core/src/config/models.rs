@@ -13,11 +13,26 @@ pub struct RootConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
+pub struct HttpServerOptionsConfig {
+    pub keepalive_request_limit: Option<u32>,
+    #[serde(default = "default_false")]
+    pub h2c: bool,
+    #[serde(default = "default_true")]
+    pub allow_connect_method_proxying: bool,
+}
+
+fn default_false() -> bool {
+    false
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct JokowayConfig {
     pub http_listen: String,
     pub https_listen: Option<String>,
     pub api: Option<ApiSettings>,
     pub tls: Option<TlsSettings>,
+    pub http_server_options: Option<HttpServerOptionsConfig>,
 
     #[serde(default)]
     pub upstreams: Vec<Upstream>,

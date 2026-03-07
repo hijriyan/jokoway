@@ -18,4 +18,4 @@ log = { workspace = true }
 psl = "2"
 
 [dev-dependencies]
-pingora = "0.7.0"
+pingora = "0.8.0"

@@ -11,7 +11,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-pingora = { version = "0.7.0", features = ["lb", "proxy", "boringssl"] }
+pingora = { version = "0.8.0", features = ["lb", "proxy", "boringssl"] }
 async-trait = "0.1"
 bytes = "1"
 serde = { version = "1", features = ["derive", "rc"] }

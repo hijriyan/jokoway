@@ -12,7 +12,7 @@
 Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs. Inspired by Traefik’s expressive routing rules and Kong’s DB-less declarative configuration model.
 
 <p align="center">
-  <strike>This is not intended for use in a production environment.</strike> This project is actually for learning and experimenting with Rust.
+  This project is actually for learning and experimenting with Rust.
 </p>
 
 <p align="center">
@@ -157,7 +157,21 @@ This section defines the basic behavior and network interfaces for Jokoway.
 jokoway:
   http_listen: "0.0.0.0:8080" # (Required) Address/port for HTTP traffic
   https_listen: "0.0.0.0:8443" # (Optional) Address/port for HTTPS traffic (Requires SSL config)
+  http_server_options:
+    keepalive_request_limit: 100
+    h2c: false
+    allow_connect_method_proxying: false
 ```
+
+#### 🛠️ HTTP Server Options
+
+Fine-tune the behavior of Jokoway's internal HTTP server.
+
+| Field | Default | Description |
+| :--- | :---: | :--- |
+| `keepalive_request_limit` | `null` *(Unlimited)* | Maximum number of requests allowed per keep-alive connection. |
+| `h2c` | `false` | Enable HTTP/2 over cleartext (without TLS). Useful for gRPC or internal proxying. |
+| `allow_connect_method_proxying` | `true` | Allow proxying CONNECT requests when handling HTTP traffic. |
 
 #### 🔎 DNS Resolution
 

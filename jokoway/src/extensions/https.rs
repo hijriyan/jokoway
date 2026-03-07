@@ -11,7 +11,7 @@ use boring::ssl::{AlpnError, SslAcceptor, SslMethod, SslVerifyMode};
 use boring::x509::X509;
 use jokoway_core::tls::{AlpnProtocol, contains_alpn_protocol};
 use pingora::listeners::tls::TlsSettings;
-use pingora::proxy::http_proxy_service;
+use pingora::proxy::ProxyServiceBuilder;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -353,7 +353,18 @@ impl JokowayExtension for HttpsExtension {
             }
 
             let tls_settings = TlsSettings::from(ssl_acceptor);
-            let mut https_service = http_proxy_service(&server.configuration, proxy.clone());
+            let mut builder = ProxyServiceBuilder::new(&server.configuration, proxy.clone())
+                .name("Jokoway HTTPS Proxy Service");
+
+            if let Some(opts) = &config.http_server_options {
+                let mut server_options = pingora::apps::HttpServerOptions::default();
+                server_options.keepalive_request_limit = opts.keepalive_request_limit;
+                server_options.h2c = opts.h2c;
+                server_options.allow_connect_method_proxying = opts.allow_connect_method_proxying;
+                builder = builder.server_options(server_options);
+            }
+
+            let mut https_service = builder.build();
             https_service.add_tls_with_settings(
                 config.https_listen.as_ref().unwrap(),
                 None,

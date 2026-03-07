@@ -5,7 +5,7 @@ use crate::server::proxy::JokowayProxy;
 use crate::server::router::{HTTP_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
-use pingora::proxy::http_proxy_service;
+use pingora::proxy::ProxyServiceBuilder;
 use std::sync::Arc;
 
 pub struct HttpExtension;
@@ -49,7 +49,18 @@ impl JokowayExtension for HttpExtension {
             false,
         )?;
 
-        let mut http_service = http_proxy_service(&server.configuration, proxy);
+        let mut builder = ProxyServiceBuilder::new(&server.configuration, proxy)
+            .name("Jokoway HTTP Proxy Service");
+
+        if let Some(opts) = &config.http_server_options {
+            let mut server_options = pingora::apps::HttpServerOptions::default();
+            server_options.keepalive_request_limit = opts.keepalive_request_limit;
+            server_options.h2c = opts.h2c;
+            server_options.allow_connect_method_proxying = opts.allow_connect_method_proxying;
+            builder = builder.server_options(server_options);
+        }
+
+        let mut http_service = builder.build();
         http_service.add_tcp(&config.http_listen);
         server.add_service(http_service);
         log::info!("HTTP proxy listening on {}", config.http_listen);
