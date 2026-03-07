@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Conditionally compile immediate certificate renewal for `pebble_tests` feature.
 - Add cargo audit configuration
+- Use `mozilla_intermediate_v5()` instead of `mozilla_intermediate()`
 
 ### ⛰️  Features
 
@@ -15,10 +16,12 @@ All notable changes to this project will be documented in this file.
 - Pass application context to all middleware methods.
 - Add `jokoway-forwarded` extension to process forwarded headers and manage trusted proxies.
 - Prioritize URI host over the Host header when determining the current host for forwarded header parsing.
+- Integrate git-cliff for automated changelog and release notes generation.
 
 ### 🐛 Bug Fixes
 
 - Clippy warnings
+- Generate release notes job
 
 ### 📚 Documentation
 
@@ -43,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Centralize X-Forwarded header constants in `models.rs` and update their usage in middleware and parser modules.
 - Rename feature flags by removing the `-extension` suffix for consistency.
 - Introduce structured prelude modules across crates for better import organization and clarity.
+- Rename `SslSettings` to `TlsSettings` and remove `min_version`/`max_version` configuration options.
 ## [0.1.0-alpha.6] - 2026-02-20
 
 ### build
