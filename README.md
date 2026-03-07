@@ -272,8 +272,6 @@ jokoway:
     server_key: "/path/to/key.pem"
     cacert: "/path/to/ca.pem"
     sans: ["example.com", "localhost"]
-    ssl_min_version: "1.2"
-    ssl_max_version: "1.3"
     cipher_suites:
       - "TLS_AES_128_GCM_SHA256"
       - "TLS_AES_256_GCM_SHA384"
@@ -286,8 +284,6 @@ jokoway:
 | `server_key` | ❌ | Path to the server private key file (PEM format). |
 | `cacert` | ❌ | Path to a CA certificate file. Setting this **enables mutual TLS (mTLS)** — clients must present a valid certificate signed by this CA to connect. |
 | `sans` | ❌ | List of Subject Alternative Names (e.g., `["example.com", "localhost"]`). Only used when `server_cert` / `server_key` are **not** provided — in that case, Jokoway generates a self-signed certificate with these SANs as a fallback. |
-| `ssl_min_version` | ❌ | Minimum TLS version to accept. Values: `"1.0"`, `"1.1"`, `"1.2"`, `"1.3"`. |
-| `ssl_max_version` | ❌ | Maximum TLS version to accept. Values: `"1.0"`, `"1.1"`, `"1.2"`, `"1.3"`. |
 | `cipher_suites` | ❌ | List of allowed cipher suites (e.g., `"TLS_AES_128_GCM_SHA256"`, `"TLS_AES_256_GCM_SHA384"`, `"TLS_CHACHA20_POLY1305_SHA256"`). |
 
 > [!TIP]

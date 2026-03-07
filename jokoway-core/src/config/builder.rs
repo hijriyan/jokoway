@@ -1,4 +1,4 @@
-use super::models::{JokowayConfig, RootConfig, ServerConf, Service, SslSettings, Upstream};
+use super::models::{JokowayConfig, RootConfig, ServerConf, Service, TlsSettings, Upstream};
 use serde_yaml;
 use std::fs::File;
 use std::io::BufReader;
@@ -56,8 +56,8 @@ impl ConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_ssl(mut self, ssl: SslSettings) -> Self {
-        self.config.ssl = Some(ssl);
+    pub fn with_tls(mut self, tls: TlsSettings) -> Self {
+        self.config.tls = Some(tls);
         self
     }
 

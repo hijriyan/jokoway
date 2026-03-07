@@ -222,9 +222,11 @@ async fn test_https_proxy() {
     let config = JokowayConfig {
         http_listen: format!("127.0.0.1:{}", port_http),
         https_listen: Some(format!("127.0.0.1:{}", port_https)),
-        ssl: Some(jokoway::config::models::SslSettings {
+        tls: Some(jokoway::config::models::TlsSettings {
+            cacert: None,
             server_cert: Some(server_cert_path.to_str().unwrap().to_string()),
             server_key: Some(server_key_path.to_str().unwrap().to_string()),
+            sans: None,
             ..Default::default()
         }),
         upstreams: vec![Upstream {

@@ -17,7 +17,7 @@ pub struct JokowayConfig {
     pub http_listen: String,
     pub https_listen: Option<String>,
     pub api: Option<ApiSettings>,
-    pub ssl: Option<SslSettings>,
+    pub tls: Option<TlsSettings>,
 
     #[serde(default)]
     pub upstreams: Vec<Upstream>,
@@ -92,13 +92,11 @@ pub struct PeerOptions {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
-pub struct SslSettings {
+pub struct TlsSettings {
     pub cacert: Option<String>,
     pub server_cert: Option<String>,
     pub server_key: Option<String>,
     pub sans: Option<Vec<String>>,
-    pub ssl_min_version: Option<String>,
-    pub ssl_max_version: Option<String>,
     pub cipher_suites: Option<Vec<String>>,
 }
 

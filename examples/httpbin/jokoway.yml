@@ -1,11 +1,6 @@
-x-ssl-settings: &ssl_settings
-  ssl_min_version: TLS1
-  ssl_max_version: TLS1.3
-
 jokoway:
   http_listen: 0.0.0.0:2014
   https_listen: 0.0.0.0:2024
-  ssl: *ssl_settings
 
   upstreams:
     - name: httpbin_upstream

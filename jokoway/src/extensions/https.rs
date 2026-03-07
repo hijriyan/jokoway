@@ -7,7 +7,7 @@ use crate::server::router::{HTTPS_PROTOCOLS, Router};
 use crate::server::service::ServiceManager;
 use crate::server::upstream::UpstreamManager;
 use boring::pkey::PKey;
-use boring::ssl::{AlpnError, SslAcceptor, SslMethod, SslVerifyMode, SslVersion};
+use boring::ssl::{AlpnError, SslAcceptor, SslMethod, SslVerifyMode};
 use boring::x509::X509;
 use jokoway_core::tls::{AlpnProtocol, contains_alpn_protocol};
 use pingora::listeners::tls::TlsSettings;
@@ -31,9 +31,9 @@ impl HttpsExtension {
     }
 
     fn self_signed_pair(
-        ssl: &crate::config::models::SslSettings,
+        tls: &crate::config::models::TlsSettings,
     ) -> Option<(X509, PKey<boring::pkey::Private>)> {
-        let subject_alt_names = ssl
+        let subject_alt_names = tls
             .sans
             .clone()
             .filter(|sans| !sans.is_empty())
@@ -57,15 +57,7 @@ impl HttpsExtension {
     }
 }
 
-fn parse_ssl_version(version: &str) -> Option<SslVersion> {
-    match version.to_uppercase().as_str() {
-        "TLSV1" | "TLS1" | "TLS1.0" | "1.0" => Some(SslVersion::TLS1),
-        "TLSV1.1" | "TLS1.1" | "1.1" => Some(SslVersion::TLS1_1),
-        "TLSV1.2" | "TLS1.2" | "1.2" => Some(SslVersion::TLS1_2),
-        "TLSV1.3" | "TLS1.3" | "1.3" => Some(SslVersion::TLS1_3),
-        _ => None,
-    }
-}
+
 
 impl JokowayExtension for HttpsExtension {
     fn order(&self) -> i16 {
@@ -98,7 +90,7 @@ impl JokowayExtension for HttpsExtension {
         let proxy =
             JokowayProxy::new(router, Arc::new(app_ctx.clone()), middlewares.clone(), true)?;
 
-        if let Some(ssl) = &config.ssl {
+        if let Some(tls) = &config.tls {
             let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()) {
                 Ok(acceptor) => acceptor,
                 Err(e) => {
@@ -110,7 +102,7 @@ impl JokowayExtension for HttpsExtension {
                 }
             };
 
-            let cert_paths = match (&ssl.server_cert, &ssl.server_key) {
+            let cert_paths = match (&tls.server_cert, &tls.server_key) {
                 (Some(cert), Some(key)) => {
                     if !Path::new(cert).exists() {
                         return Err(Box::new(JokowayError::Tls(format!(
@@ -153,7 +145,7 @@ impl JokowayExtension for HttpsExtension {
             let fallback_pair = match base_pair.clone() {
                 Some(pair) => Some(pair),
                 None => {
-                    let generated = Self::self_signed_pair(ssl);
+                    let generated = Self::self_signed_pair(tls);
                     if generated.is_some() {
                         log::debug!("Using self-signed certificate fallback");
                     }
@@ -244,7 +236,7 @@ impl JokowayExtension for HttpsExtension {
 
             // --- 4. Verify Callback ---
             let tls_cb_verify = tls_callback.clone();
-            let verify_mode = if let Some(ca_path) = &ssl.cacert {
+            let verify_mode = if let Some(ca_path) = &tls.cacert {
                 if !Path::new(ca_path).exists() {
                     return Err(Box::new(JokowayError::Tls(format!(
                         "CA certificate file not found: {}",
@@ -348,25 +340,8 @@ impl JokowayExtension for HttpsExtension {
                 }
             });
 
-            if let Some(ver) = ssl.ssl_min_version.as_deref().and_then(parse_ssl_version)
-                && let Err(e) = ssl_acceptor.set_min_proto_version(Some(ver))
-            {
-                log::error!("Failed to set min TLS version: {}", e);
-                return Err(Box::new(JokowayError::Tls(format!(
-                    "Failed to set min TLS version: {}",
-                    e
-                ))));
-            }
-            if let Some(ver) = ssl.ssl_max_version.as_deref().and_then(parse_ssl_version)
-                && let Err(e) = ssl_acceptor.set_max_proto_version(Some(ver))
-            {
-                log::error!("Failed to set max TLS version: {}", e);
-                return Err(Box::new(JokowayError::Tls(format!(
-                    "Failed to set max TLS version: {}",
-                    e
-                ))));
-            }
-            if let Some(ciphers) = &ssl.cipher_suites {
+
+            if let Some(ciphers) = &tls.cipher_suites {
                 let ciphers_str = ciphers.join(":");
                 if let Err(e) = ssl_acceptor.set_cipher_list(&ciphers_str) {
                     log::error!("Failed to set cipher suites: {}", e);

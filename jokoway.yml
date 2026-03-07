@@ -53,7 +53,7 @@ x-peer-options: &peer_options
   # Default: None
   sni: null
 
-x-ssl-settings: &ssl_settings # Path to CA certificate file
+x-tls-settings: &tls_settings # Path to CA certificate file
   cacert: null
 
   # Path to server certificate file (Required for SSL/TLS)
@@ -67,13 +67,6 @@ x-ssl-settings: &ssl_settings # Path to CA certificate file
     - "localhost"
     - "127.0.0.1"
     - "::1"
-
-  # Minimum SSL/TLS version
-  # Values: "1.0", "1.1", "1.2", "1.3"
-  ssl_min_version: "1.0"
-
-  # Maximum SSL/TLS version
-  ssl_max_version: "1.3"
 
   # Custom cipher suites configuration
   cipher_suites:
@@ -129,9 +122,9 @@ jokoway:
       - "image/svg+xml"
       - "text/*"
 
-  # SSL/TLS Configuration (optional)
+  # TLS Configuration (optional)
   # Required if https_listen is set
-  ssl: *ssl_settings
+  tls: *tls_settings
 
   # ACME (Let's Encrypt) Configuration (optional)
   # implementation depends on 'acme' feature

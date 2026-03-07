@@ -1,7 +1,7 @@
 #![cfg(feature = "acme_tests")]
 
 use jokoway::config::models::{
-    JokowayConfig, Route, Service, ServiceProtocol, SslSettings, Upstream, UpstreamServer,
+    JokowayConfig, Route, Service, ServiceProtocol, TlsSettings, Upstream, UpstreamServer,
 };
 use jokoway::prelude::acme::{AcmeChallengeType, AcmeSettings};
 use jokoway::server::app::App;
@@ -70,7 +70,7 @@ fn create_acme_config(
     let mut config = JokowayConfig {
         http_listen: format!("0.0.0.0:{}", http_port),
         https_listen: Some(format!("0.0.0.0:{}", https_port)),
-        ssl: Some(SslSettings::default()),
+        tls: Some(TlsSettings::default()),
         extra: std::collections::HashMap::new(),
         services: vec![Arc::new(Service {
             name: "test-acme-service".to_string(),
