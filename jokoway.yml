@@ -5,8 +5,15 @@
 # You can use YAML anchors (&name) and aliases (*name) to reuse configuration blocks.
 
 x-peer-options: &peer_options
+  # --- Timeouts ---
+
+  # Maximum time to wait for establishing a TCP connection (in seconds)
+  # Default: None
+  connection_timeout: 10
+
   # Timeout for reading from the upstream peer (in seconds)
-  # Default: None (indefinite)
+  # Resets after each read
+  # Default: None
   read_timeout: 30
 
   # Timeout for idle connections (in seconds)
@@ -17,25 +24,31 @@ x-peer-options: &peer_options
   # Default: None
   write_timeout: 30
 
+  # --- TLS / Security ---
+
   # Whether to verify the upstream certificate
   # Default: None (false/not enforced by default unless specified)
   verify_cert: true
 
-  # Whether to verify the hostname in the upstream certificate
+  # Whether to verify the hostname in the upstream certificate matches the SNI
   # Default: None
   verify_hostname: true
 
-  # TCP receive buffer size (in bytes)
+  # Accept a certificate if its Common Name (CN) matches this value instead of the SNI
   # Default: None
-  tcp_recv_buf: 4096
+  alternative_cn: null
 
-  # SSL/TLS curves to use
+  # ALPN protocol negotiation: "h1" (HTTP/1.1), "h2" (HTTP/2), or "h1h2" (both)
+  # Default: "h1"
+  alpn: "h1h2"
+
+  # TLS curves to advertise for the connection (e.g., "X25519")
   # Default: None
   curves: null
 
-  # Enable TCP Fast Open
+  # Use a second key share during TLS handshake (relevant for post-quantum curves)
   # Default: None
-  tcp_fast_open: true
+  second_keyshare: null
 
   # Path to CA certificate for verifying upstream
   # Default: None
@@ -50,8 +63,51 @@ x-peer-options: &peer_options
   client_key: null
 
   # SNI hostname to use for TLS handshakes
+  # Auto-detected from server hostname if not set
   # Default: None
   sni: null
+
+  # --- TCP ---
+
+  # TCP keepalive settings
+  # Default: None (disabled)
+  tcp_keepalive:
+    idle: 60       # Seconds before first probe (Default: 60)
+    interval: 5    # Seconds between probes (Default: 5)
+    count: 5       # Failed probes before drop (Default: 5)
+
+  # TCP receive buffer size (in bytes)
+  # Default: None
+  tcp_recv_buf: 4096
+
+  # DSCP value for Quality of Service (QoS) marking (0-63)
+  # Default: None
+  dscp: null
+
+  # Enable TCP Fast Open for reduced latency on new connections
+  # Default: None
+  tcp_fast_open: true
+
+  # --- HTTP ---
+
+  # Interval (in seconds) for HTTP/2 PING frames to keep connections alive
+  # Default: None
+  h2_ping_interval: null
+
+  # Maximum concurrent HTTP/2 streams per connection
+  # Default: 1
+  max_h2_streams: null
+
+  # Accept HTTP/1 responses with invalid Content-Length headers
+  # Treats them as close-delimited. Useful for legacy servers.
+  # Default: false
+  allow_h1_response_invalid_content_length: null
+
+  # Extra headers to send to the upstream
+  # Default: None
+  extra_proxy_headers: null
+  # extra_proxy_headers:
+  #   X-Forwarded-By: "jokoway"
 
 x-tls-settings: &tls_settings # Path to CA certificate file
   cacert: null
