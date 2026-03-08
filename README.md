@@ -425,14 +425,31 @@ jokoway:
           User-Check: "Pingora-Health"
       update_frequency: 60
       peer_options:             # Default peer options for all servers
+        connection_timeout: 10
         read_timeout: 30
         idle_timeout: 60
         write_timeout: 30
         verify_cert: true
         verify_hostname: true
+        alternative_cn: "alt.example.com"
+        alpn: "h1h2"
+        tcp_keepalive:
+          idle: 60
+          interval: 5
+          count: 5
         tcp_recv_buf: 4096
+        dscp: 46
         tcp_fast_open: true
+        h2_ping_interval: 30
+        max_h2_streams: 100
+        second_keyshare: true
+        curves: "X25519"
+        cacert: "/path/to/ca.pem"
+        client_cert: "/path/to/client.pem"
+        client_key: "/path/to/client-key.pem"
         sni: "backend.example.com"
+        extra_proxy_headers:
+          X-Forwarded-By: "jokoway"
 ```
 
 ##### Upstream Fields
@@ -476,20 +493,55 @@ Active health checks periodically probe each backend server to determine if it i
 
 Peer options control how Jokoway connects to upstream backend servers. They can be set at the **upstream level** (applies to all servers) or at the **individual server level** (overrides the upstream default).
 
+**Timeouts**
+
 | Field | Default | Description |
 | :--- | :---: | :--- |
-| `read_timeout` | — | Timeout (in seconds) for reading a response from the upstream. |
+| `connection_timeout` | — | Maximum time (in seconds) to wait for establishing a TCP connection. |
+| `read_timeout` | — | Timeout (in seconds) for reading a response from the upstream. Resets after each read. |
 | `idle_timeout` | — | Timeout (in seconds) before closing an idle keep-alive connection. |
 | `write_timeout` | — | Timeout (in seconds) for writing a request to the upstream. |
+
+**TLS / Security**
+
+| Field | Default | Description |
+| :--- | :---: | :--- |
 | `verify_cert` | `false` | If `true`, verify the upstream server's TLS certificate. |
-| `verify_hostname` | `false` | If `true`, verify that the upstream's TLS certificate hostname matches. |
-| `tcp_recv_buf` | — | TCP receive buffer size in bytes. |
-| `tcp_fast_open` | — | If `true`, enable TCP Fast Open for reduced latency on new connections. |
-| `curves` | — | SSL/TLS curves to use for the connection. |
+| `verify_hostname` | `false` | If `true`, verify that the upstream's TLS certificate hostname matches the SNI. |
+| `alternative_cn` | — | Accept a certificate if its Common Name (CN) matches this value instead of the SNI. |
+| `alpn` | `"h1"` | ALPN protocol negotiation: `"h1"` (HTTP/1.1), `"h2"` (HTTP/2), or `"h1h2"` (both). |
+| `curves` | — | TLS curves to advertise for the connection (e.g., `"X25519"`). |
+| `second_keyshare` | — | If `true`, use a second key share during TLS handshake (relevant for post-quantum curves). |
 | `cacert` | — | Path to a CA certificate file for verifying the upstream's TLS certificate. |
 | `client_cert` | — | Path to a client certificate file for mutual TLS (mTLS) with the upstream. |
 | `client_key` | — | Path to a client private key file for mTLS. |
-| `sni` | — | Server Name Indication (SNI) hostname to send during the TLS handshake. |
+| `sni` | — | Server Name Indication (SNI) hostname to send during the TLS handshake. Auto-detected from the server hostname if not set. |
+
+**TCP**
+
+| Field | Default | Description |
+| :--- | :---: | :--- |
+| `tcp_keepalive` | — | TCP keepalive settings. See **TCP Keepalive** below. |
+| `tcp_recv_buf` | — | TCP receive buffer size in bytes. |
+| `dscp` | — | DSCP value for Quality of Service (QoS) marking (0–63). |
+| `tcp_fast_open` | — | If `true`, enable TCP Fast Open for reduced latency on new connections. |
+
+**TCP Keepalive**
+
+| Field | Default | Description |
+| :--- | :---: | :--- |
+| `idle` | `60` | Seconds of idle time before sending the first keepalive probe. |
+| `interval` | `5` | Seconds between consecutive keepalive probes. |
+| `count` | `5` | Number of failed probes before dropping the connection. |
+
+**HTTP**
+
+| Field | Default | Description |
+| :--- | :---: | :--- |
+| `h2_ping_interval` | — | Interval (in seconds) for HTTP/2 PING frames to keep connections alive. |
+| `max_h2_streams` | `1` | Maximum number of concurrent HTTP/2 streams allowed per connection. |
+| `allow_h1_response_invalid_content_length` | `false` | If `true`, accept HTTP/1 responses with invalid `Content-Length` headers (treats them as close-delimited). Useful for legacy servers. |
+| `extra_proxy_headers` | — | Map of extra headers to send to the upstream (e.g., `X-Forwarded-By: "jokoway"`). |
 
 > [!TIP]
 > You can use YAML anchors to define `peer_options` once and reuse them across multiple upstreams. See the [full example configuration](./jokoway.yml) for details.

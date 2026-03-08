@@ -90,14 +90,34 @@ fn default_true() -> bool {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
+pub struct TcpKeepaliveConfig {
+    pub idle: Option<u64>,
+    pub interval: Option<u64>,
+    pub count: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct PeerOptions {
+    pub connection_timeout: Option<u64>,
     pub read_timeout: Option<u64>,
     pub idle_timeout: Option<u64>,
     pub write_timeout: Option<u64>,
     pub verify_cert: Option<bool>,
     pub verify_hostname: Option<bool>,
+    pub alternative_cn: Option<String>,
+    /// ALPN protocol negotiation: "h1", "h2", or "h1h2"
+    pub alpn: Option<String>,
+    pub tcp_keepalive: Option<TcpKeepaliveConfig>,
     pub tcp_recv_buf: Option<usize>,
+    pub dscp: Option<u8>,
+    pub h2_ping_interval: Option<u64>,
+    pub max_h2_streams: Option<usize>,
+    pub allow_h1_response_invalid_content_length: Option<bool>,
+    pub extra_proxy_headers: Option<std::collections::HashMap<String, String>>,
     pub curves: Option<String>,
+    pub second_keyshare: Option<bool>,
     pub tcp_fast_open: Option<bool>,
     pub cacert: Option<String>,
     pub client_cert: Option<String>,

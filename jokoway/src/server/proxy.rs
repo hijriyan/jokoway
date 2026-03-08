@@ -1,4 +1,4 @@
-use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions};
+use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions, TcpKeepaliveConfig};
 use crate::error::JokowayError;
 
 use crate::prelude::core::*;
@@ -105,7 +105,10 @@ impl CachedPeerConfig {
     #[inline]
     pub fn apply_to_peer<P: ConfigurablePeer>(&self, peer: &mut P) {
         let peer_options = peer.options_mut();
-        // Apply basic options (same as original apply_peer_options)
+        // Timeouts
+        if let Some(connection_timeout) = self.options.connection_timeout {
+            peer_options.connection_timeout = Some(Duration::from_secs(connection_timeout));
+        }
         if let Some(read_timeout) = self.options.read_timeout {
             peer_options.read_timeout = Some(Duration::from_secs(read_timeout));
         }
@@ -115,23 +118,57 @@ impl CachedPeerConfig {
         if let Some(write_timeout) = self.options.write_timeout {
             peer_options.write_timeout = Some(Duration::from_secs(write_timeout));
         }
+        // TLS
         if let Some(verify_cert) = self.options.verify_cert {
             peer_options.verify_cert = verify_cert;
         }
         if let Some(verify_hostname) = self.options.verify_hostname {
             peer_options.verify_hostname = verify_hostname;
         }
-        if let Some(tcp_recv_buf) = self.options.tcp_recv_buf {
-            peer_options.tcp_recv_buf = Some(tcp_recv_buf);
+        if let Some(ref alt_cn) = self.options.alternative_cn {
+            peer_options.alternative_cn = Some(alt_cn.clone());
+        }
+        if let Some(ref alpn) = self.options.alpn {
+            peer_options.alpn = parse_alpn(alpn);
         }
         if let Some(curves) = self.curves {
             peer_options.curves = Some(curves);
         }
+        if let Some(second_keyshare) = self.options.second_keyshare {
+            peer_options.second_keyshare = second_keyshare;
+        }
+        // TCP
+        if let Some(ref keepalive) = self.options.tcp_keepalive {
+            peer_options.tcp_keepalive = Some(convert_tcp_keepalive(keepalive));
+        }
+        if let Some(tcp_recv_buf) = self.options.tcp_recv_buf {
+            peer_options.tcp_recv_buf = Some(tcp_recv_buf);
+        }
+        if let Some(dscp) = self.options.dscp {
+            peer_options.dscp = Some(dscp);
+        }
         if let Some(tcp_fast_open) = self.options.tcp_fast_open {
             peer_options.tcp_fast_open = tcp_fast_open;
         }
-
-        // Set CA certificates if available
+        // HTTP/2
+        if let Some(h2_ping_interval) = self.options.h2_ping_interval {
+            peer_options.h2_ping_interval = Some(Duration::from_secs(h2_ping_interval));
+        }
+        if let Some(max_h2_streams) = self.options.max_h2_streams {
+            peer_options.max_h2_streams = max_h2_streams;
+        }
+        if let Some(allow) = self.options.allow_h1_response_invalid_content_length {
+            peer_options.allow_h1_response_invalid_content_length = allow;
+        }
+        // Extra headers
+        if let Some(ref headers) = self.options.extra_proxy_headers {
+            for (k, v) in headers {
+                peer_options
+                    .extra_proxy_headers
+                    .insert(k.clone(), v.as_bytes().to_vec());
+            }
+        }
+        // CA certificates
         if let Some(ca_certs) = &self.ca_certs {
             peer_options.ca = Some(ca_certs.clone());
         }
@@ -189,6 +226,10 @@ pub fn merge_peer_options(
 ) -> ConfigPeerOptions {
     let mut merged = parent.cloned().unwrap_or_default();
     if let Some(child) = child {
+        // Timeouts
+        if child.connection_timeout.is_some() {
+            merged.connection_timeout = child.connection_timeout;
+        }
         if child.read_timeout.is_some() {
             merged.read_timeout = child.read_timeout;
         }
@@ -198,21 +239,54 @@ pub fn merge_peer_options(
         if child.write_timeout.is_some() {
             merged.write_timeout = child.write_timeout;
         }
+        // TLS
         if child.verify_cert.is_some() {
             merged.verify_cert = child.verify_cert;
         }
         if child.verify_hostname.is_some() {
             merged.verify_hostname = child.verify_hostname;
         }
-        if child.tcp_recv_buf.is_some() {
-            merged.tcp_recv_buf = child.tcp_recv_buf;
+        if child.alternative_cn.is_some() {
+            merged.alternative_cn = child.alternative_cn.clone();
+        }
+        if child.alpn.is_some() {
+            merged.alpn = child.alpn.clone();
         }
         if child.curves.is_some() {
             merged.curves = child.curves.clone();
         }
+        if child.second_keyshare.is_some() {
+            merged.second_keyshare = child.second_keyshare;
+        }
+        // TCP
+        if child.tcp_keepalive.is_some() {
+            merged.tcp_keepalive = child.tcp_keepalive.clone();
+        }
+        if child.tcp_recv_buf.is_some() {
+            merged.tcp_recv_buf = child.tcp_recv_buf;
+        }
+        if child.dscp.is_some() {
+            merged.dscp = child.dscp;
+        }
         if child.tcp_fast_open.is_some() {
             merged.tcp_fast_open = child.tcp_fast_open;
         }
+        // HTTP/2
+        if child.h2_ping_interval.is_some() {
+            merged.h2_ping_interval = child.h2_ping_interval;
+        }
+        if child.max_h2_streams.is_some() {
+            merged.max_h2_streams = child.max_h2_streams;
+        }
+        if child.allow_h1_response_invalid_content_length.is_some() {
+            merged.allow_h1_response_invalid_content_length =
+                child.allow_h1_response_invalid_content_length;
+        }
+        // Extra headers
+        if child.extra_proxy_headers.is_some() {
+            merged.extra_proxy_headers = child.extra_proxy_headers.clone();
+        }
+        // Certs
         if child.cacert.is_some() {
             merged.cacert = child.cacert.clone();
         }
@@ -227,6 +301,29 @@ pub fn merge_peer_options(
         }
     }
     merged
+}
+
+fn parse_alpn(alpn: &str) -> pingora::upstreams::peer::ALPN {
+    use pingora::upstreams::peer::ALPN;
+    match alpn.to_lowercase().as_str() {
+        "h1" => ALPN::H1,
+        "h2" => ALPN::H2,
+        "h2h1" | "h1h2" => ALPN::H2H1,
+        _ => {
+            log::warn!("Unknown ALPN value '{}', defaulting to H1", alpn);
+            ALPN::H1
+        }
+    }
+}
+
+fn convert_tcp_keepalive(
+    config: &TcpKeepaliveConfig,
+) -> pingora::protocols::TcpKeepalive {
+    pingora::protocols::TcpKeepalive {
+        idle: Duration::from_secs(config.idle.unwrap_or(60)),
+        interval: Duration::from_secs(config.interval.unwrap_or(5)),
+        count: config.count.unwrap_or(5) as usize,
+    }
 }
 
 fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> {
