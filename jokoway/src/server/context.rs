@@ -3,14 +3,25 @@ use jokoway_transformer::{RequestTransformer, ResponseTransformer};
 use bytes::BytesMut;
 use flate2::Decompress;
 pub use jokoway_core::{AppContext, Context, RequestContext};
+use pingora::protocols::http::bridge::grpc_web::GrpcWebCtx;
 use std::any::Any;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GrpcMode {
+    #[default]
+    None,
+    Native,
+    Web,
+}
 
 pub struct ProxyContext {
     pub upstream_name: Option<Arc<str>>,
     pub response_transformer: Option<Arc<dyn ResponseTransformer>>,
     pub req_transformer: Option<Arc<dyn RequestTransformer>>,
     pub is_upgrade: bool,
+    pub grpc_mode: GrpcMode,
+    pub grpc_web: GrpcWebCtx,
     pub ws_client_buf: BytesMut,
     pub ws_upstream_buf: BytesMut,
     pub rewrite_host: Option<String>,
@@ -30,6 +41,8 @@ impl ProxyContext {
             response_transformer: None,
             req_transformer: None,
             is_upgrade: false,
+            grpc_mode: GrpcMode::None,
+            grpc_web: GrpcWebCtx::default(),
             // Pre-allocate reasonable buffer sizes for WebSocket frames
             ws_client_buf: BytesMut::with_capacity(4096),
             ws_upstream_buf: BytesMut::with_capacity(4096),

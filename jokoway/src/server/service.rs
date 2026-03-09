@@ -8,13 +8,23 @@ use jokoway_transformer::{
 };
 
 /// Pre-computed protocol sets for faster lookups
-pub const HTTP_PROTOCOLS: [ServiceProtocol; 2] = [ServiceProtocol::Http, ServiceProtocol::Ws];
-pub const HTTPS_PROTOCOLS: [ServiceProtocol; 2] = [ServiceProtocol::Https, ServiceProtocol::Wss];
-pub const ALL_PROTOCOLS: [ServiceProtocol; 4] = [
+pub const HTTP_PROTOCOLS: [ServiceProtocol; 3] = [
+    ServiceProtocol::Http,
+    ServiceProtocol::Ws,
+    ServiceProtocol::Grpc,
+];
+pub const HTTPS_PROTOCOLS: [ServiceProtocol; 3] = [
+    ServiceProtocol::Https,
+    ServiceProtocol::Wss,
+    ServiceProtocol::Grpcs,
+];
+pub const ALL_PROTOCOLS: [ServiceProtocol; 6] = [
     ServiceProtocol::Http,
     ServiceProtocol::Https,
     ServiceProtocol::Ws,
     ServiceProtocol::Wss,
+    ServiceProtocol::Grpc,
+    ServiceProtocol::Grpcs,
 ];
 
 use jokoway_rules::Matcher;

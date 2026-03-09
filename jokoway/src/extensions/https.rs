@@ -57,8 +57,6 @@ impl HttpsExtension {
     }
 }
 
-
-
 impl JokowayExtension for HttpsExtension {
     fn order(&self) -> i16 {
         -100
@@ -339,7 +337,6 @@ impl JokowayExtension for HttpsExtension {
                     }
                 }
             });
-
 
             if let Some(ciphers) = &tls.cipher_suites {
                 let ciphers_str = ciphers.join(":");

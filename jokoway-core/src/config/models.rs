@@ -94,6 +94,8 @@ pub struct TcpKeepaliveConfig {
     pub idle: Option<u64>,
     pub interval: Option<u64>,
     pub count: Option<u32>,
+    #[cfg(target_os = "linux")]
+    pub user_timeout: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -201,6 +203,10 @@ pub enum ServiceProtocol {
     Ws,
     #[serde(rename = "wss")]
     Wss,
+    #[serde(rename = "grpc")]
+    Grpc,
+    #[serde(rename = "grpcs")]
+    Grpcs,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

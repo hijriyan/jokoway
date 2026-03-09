@@ -1,7 +1,9 @@
 use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions, TcpKeepaliveConfig};
 use crate::error::JokowayError;
 
+use crate::config::models::ServiceProtocol;
 use crate::prelude::core::*;
+use crate::server::context::GrpcMode;
 use crate::server::context::{AppContext, Context, ProxyContext, RequestContext};
 use crate::server::router::Router;
 use crate::server::upstream::UpstreamManager;
@@ -13,6 +15,7 @@ use jokoway_core::websocket::{
 };
 use pingora::Error;
 use pingora::http::ResponseHeader;
+use pingora::protocols::http::bridge::grpc_web::GrpcWebCtx;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::tls::{pkey::PKey, x509::X509};
 use pingora::upstreams::peer::{BasicPeer, HttpPeer, PeerOptions};
@@ -316,13 +319,13 @@ fn parse_alpn(alpn: &str) -> pingora::upstreams::peer::ALPN {
     }
 }
 
-fn convert_tcp_keepalive(
-    config: &TcpKeepaliveConfig,
-) -> pingora::protocols::TcpKeepalive {
+fn convert_tcp_keepalive(config: &TcpKeepaliveConfig) -> pingora::protocols::TcpKeepalive {
     pingora::protocols::TcpKeepalive {
         idle: Duration::from_secs(config.idle.unwrap_or(60)),
         interval: Duration::from_secs(config.interval.unwrap_or(5)),
         count: config.count.unwrap_or(5) as usize,
+        #[cfg(target_os = "linux")]
+        user_timeout: Duration::from_secs(config.user_timeout.unwrap_or(0)),
     }
 }
 
@@ -351,7 +354,9 @@ fn load_client_cert_key(
 impl ProxyHttp for JokowayProxy {
     type CTX = ProxyContext;
     fn new_ctx(&self) -> Self::CTX {
-        ProxyContext::new()
+        let mut ctx = ProxyContext::new();
+        ctx.grpc_web.init();
+        ctx
     }
 
     async fn early_request_filter(
@@ -387,6 +392,9 @@ impl ProxyHttp for JokowayProxy {
         let is_upgrade = session.is_upgrade_req();
         let req_header = session.req_header_mut();
 
+        // gRPC-Web: detect and rewrite request headers (grpc-web -> grpc)
+        ctx.grpc_web.request_header_filter(req_header);
+
         if is_upgrade {
             // Check if Connection header needs to be added
             let needs_connection_upgrade = req_header
@@ -400,11 +408,26 @@ impl ProxyHttp for JokowayProxy {
             }
         }
 
-        let client_protocol = match (self.is_tls, is_upgrade) {
-            (false, false) => crate::config::models::ServiceProtocol::Http,
-            (false, true) => crate::config::models::ServiceProtocol::Ws,
-            (true, false) => crate::config::models::ServiceProtocol::Https,
-            (true, true) => crate::config::models::ServiceProtocol::Wss,
+        // Detect gRPC mode
+        if ctx.grpc_web == GrpcWebCtx::Upgrade {
+            ctx.grpc_mode = crate::server::context::GrpcMode::Web;
+        } else if req_header
+            .headers
+            .get("Content-Type")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.starts_with("application/grpc"))
+            .unwrap_or(false)
+        {
+            ctx.grpc_mode = crate::server::context::GrpcMode::Native;
+        }
+
+        let client_protocol = match (self.is_tls, is_upgrade, ctx.grpc_mode) {
+            (true, _, GrpcMode::Native | GrpcMode::Web) => ServiceProtocol::Grpcs,
+            (false, _, GrpcMode::Native | GrpcMode::Web) => ServiceProtocol::Grpc,
+            (true, true, GrpcMode::None) => ServiceProtocol::Wss,
+            (true, false, GrpcMode::None) => ServiceProtocol::Https,
+            (false, true, GrpcMode::None) => ServiceProtocol::Ws,
+            (false, false, GrpcMode::None) => ServiceProtocol::Http,
         };
 
         // Route matching with early return
@@ -477,6 +500,12 @@ impl ProxyHttp for JokowayProxy {
             config.apply_client_cert(&mut peer);
         }
 
+        // Force H2 ALPN for gRPC and gRPC-Web bridging
+        if ctx.grpc_mode != crate::server::context::GrpcMode::None {
+            log::debug!("Forcing HTTP/2 ALPN for gRPC/gRPC-Web upstream");
+            peer.options.alpn = pingora::upstreams::peer::ALPN::H2;
+        }
+
         Ok(Box::new(peer))
     }
 
@@ -512,6 +541,10 @@ impl ProxyHttp for JokowayProxy {
         if ctx.is_upgrade {
             return Ok(());
         }
+
+        // gRPC-Web: rewrite response headers (application/grpc -> application/grpc-web)
+        ctx.grpc_web.response_header_filter(upstream_response);
+
         for (idx, middleware) in self.middlewares.iter().enumerate() {
             let middleware_ctx = &mut ctx.middleware_ctx[idx];
             middleware
@@ -529,6 +562,24 @@ impl ProxyHttp for JokowayProxy {
             transformer.transform_response(upstream_response);
         }
         Ok(())
+    }
+
+    async fn response_trailer_filter(
+        &self,
+        _session: &mut Session,
+        upstream_trailers: &mut http::HeaderMap,
+        ctx: &mut Self::CTX,
+    ) -> Result<Option<Bytes>, Box<Error>> {
+        // gRPC-Web: encode trailers into response body as length-prefixed frame
+        Ok(ctx
+            .grpc_web
+            .response_trailer_filter(upstream_trailers)
+            .map_err(|e| {
+                Error::explain(
+                    pingora::ErrorType::ReadError,
+                    format!("gRPC-Web trailer filter error: {}", e),
+                )
+            })?)
     }
 
     async fn request_body_filter(
