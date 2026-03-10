@@ -7,22 +7,22 @@ use std::net::IpAddr;
 /// Configuration settings for the HTTP Forwarded middleware.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ForwardedSettings {
-    /// Whether the middleware is enabled. Defaults to true.
-    #[serde(default = "default_true")]
+    /// Whether the middleware is enabled. Defaults to false.
+    #[serde(default = "default_false")]
     pub enabled: bool,
     /// List of trusted proxy CIDR ranges (IPv4 and IPv6).
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
 }
 
-fn default_true() -> bool {
-    true
+fn default_false() -> bool {
+    false
 }
 
 impl Default for ForwardedSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             trusted_proxies: Vec::new(),
         }
     }
