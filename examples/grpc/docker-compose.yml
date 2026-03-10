@@ -1,0 +1,24 @@
+services:
+  jokoway:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./jokoway.yml:/etc/jokoway/jokoway.yml
+    command: ["-c", "/etc/jokoway/jokoway.yml"]
+    environment:
+      - RUST_LOG=debug
+    depends_on:
+      - grpc-server
+    networks:
+      - grpc-demo
+
+  grpc-server:
+    build: .
+    networks:
+      - grpc-demo
+
+networks:
+  grpc-demo:

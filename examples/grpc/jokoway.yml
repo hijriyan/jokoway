@@ -1,0 +1,20 @@
+jokoway:
+  http_listen: "0.0.0.0:8080"
+
+  # Enable h2c for gRPC
+  # this config is required for grpcurl to work
+  http_server_options:
+    h2c: true
+
+  upstreams:
+    - name: grpc-backend
+      servers:
+        - host: "grpc-server:50051"
+
+  services:
+    - name: grpc-service
+      host: grpc-backend
+      protocols: ["grpc"]
+      routes:
+        - name: helloworld-route
+          rule: PathPrefix(`/`)
