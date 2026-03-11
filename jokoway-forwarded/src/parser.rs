@@ -24,19 +24,22 @@ pub fn parse_legacy_headers(
     let mut info = ForwardedInfo::default();
 
     if let Some(xff) = req.headers.get(XFF)
-        && let Ok(s) = xff.to_str() {
-            info.for_nodes = Some(s.into());
-        }
+        && let Ok(s) = xff.to_str()
+    {
+        info.for_nodes = Some(s.into());
+    }
 
     if let Some(xfh) = req.headers.get(XFH)
-        && let Ok(s) = xfh.to_str() {
-            parse_host(s.trim(), &mut info);
-        }
+        && let Ok(s) = xfh.to_str()
+    {
+        parse_host(s.trim(), &mut info);
+    }
 
     if let Some(xfp) = req.headers.get(XFP)
-        && let Ok(s) = xfp.to_str() {
-            parse_proto(s.trim(), &mut info);
-        }
+        && let Ok(s) = xfp.to_str()
+    {
+        parse_proto(s.trim(), &mut info);
+    }
 
     if let Some(ip) = client_ip {
         let ip_str = ip.to_string();

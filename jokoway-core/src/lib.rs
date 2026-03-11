@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod error;
+pub mod grpc;
 pub mod prelude;
 pub mod tls;
 pub mod websocket;
@@ -257,6 +258,20 @@ pub trait JokowayMiddleware: Send + Sync {
     ) -> crate::websocket::WebsocketErrorAction {
         crate::websocket::WebsocketErrorAction::PassThrough
     }
+
+    /// Invoked whenever a discrete, fully-parsed gRPC message is intercepted.
+    ///
+    /// This hook operates on both directions of the gRPC connection, distinguished by the `_direction` parameter.
+    fn on_grpc_message(
+        &self,
+        _direction: crate::grpc::GrpcDirection,
+        message: crate::grpc::GrpcMessage,
+        _ctx: &mut Self::CTX,
+        _app_ctx: &AppContext,
+        _request_ctx: &RequestContext,
+    ) -> crate::grpc::GrpcMessageAction {
+        crate::grpc::GrpcMessageAction::Forward(message)
+    }
 }
 
 /// Dynamic dispatch version of JokowayMiddleware for trait objects
@@ -326,6 +341,15 @@ pub trait JokowayMiddlewareDyn: Send + Sync {
         app_ctx: &AppContext,
         request_ctx: &RequestContext,
     ) -> crate::websocket::WebsocketErrorAction;
+
+    fn on_grpc_message_dyn(
+        &self,
+        direction: crate::grpc::GrpcDirection,
+        message: crate::grpc::GrpcMessage,
+        ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
+    ) -> crate::grpc::GrpcMessageAction;
 }
 
 /// Blanket implementation for all JokowayMiddleware types
@@ -429,6 +453,20 @@ impl<T: JokowayMiddleware> JokowayMiddlewareDyn for T {
             .downcast_mut::<T::CTX>()
             .expect("Invalid context type for JokowayMiddleware");
         self.on_websocket_error(direction, error, ctx, app_ctx, request_ctx)
+    }
+
+    fn on_grpc_message_dyn(
+        &self,
+        direction: crate::grpc::GrpcDirection,
+        message: crate::grpc::GrpcMessage,
+        ctx: &mut (dyn Any + Send + Sync),
+        app_ctx: &AppContext,
+        request_ctx: &RequestContext,
+    ) -> crate::grpc::GrpcMessageAction {
+        let ctx = ctx
+            .downcast_mut::<T::CTX>()
+            .expect("Invalid context type for JokowayMiddleware");
+        self.on_grpc_message(direction, message, ctx, app_ctx, request_ctx)
     }
 }
 

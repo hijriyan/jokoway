@@ -10,6 +10,7 @@ use crate::server::upstream::UpstreamManager;
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Version;
+use http::header::{CONTENT_LENGTH, TRANSFER_ENCODING};
 use jokoway_core::websocket::{
     WsFrame, WsOpcode, WsParseResult, encode_ws_frame_into, mask_key_from_time, parse_ws_frames,
 };
@@ -519,6 +520,10 @@ impl ProxyHttp for JokowayProxy {
             upstream_request.set_version(Version::HTTP_11);
         }
 
+        // Middleware might change the body size, so remove Content-Length
+        if !self.middlewares.is_empty() {
+            upstream_request.remove_header("content-length");
+        }
         if let Some(host) = &ctx.rewrite_host {
             upstream_request.insert_header("Host", host).map_err(|e| {
                 Error::explain(pingora::ErrorType::InvalidHTTPHeader, e.to_string())
@@ -540,6 +545,14 @@ impl ProxyHttp for JokowayProxy {
     ) -> Result<(), Box<Error>> {
         if ctx.is_upgrade {
             return Ok(());
+        }
+
+        // Middleware might change the body size, so remove Content-Length
+        if !self.middlewares.is_empty() {
+            upstream_response.remove_header(&CONTENT_LENGTH);
+            upstream_response
+                .insert_header(TRANSFER_ENCODING, "chunked")
+                .expect("insert header");
         }
 
         // gRPC-Web: rewrite response headers (application/grpc -> application/grpc-web)
@@ -589,7 +602,7 @@ impl ProxyHttp for JokowayProxy {
         end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<(), Box<Error>> {
-        if !ctx.is_upgrade {
+        if !ctx.is_upgrade && ctx.grpc_mode == GrpcMode::None {
             for (idx, middleware) in self.middlewares.iter().enumerate() {
                 let middleware_ctx = &mut ctx.middleware_ctx[idx];
                 middleware
@@ -602,6 +615,61 @@ impl ProxyHttp for JokowayProxy {
                         &ctx.request_ctx,
                     )
                     .await?;
+            }
+            return Ok(());
+        }
+
+        if ctx.grpc_mode != GrpcMode::None {
+            let Some(chunk) = body.take() else {
+                return Ok(());
+            };
+            if self.middlewares.is_empty() {
+                *body = Some(chunk);
+                return Ok(());
+            }
+
+            ctx.grpc_client_buf.extend_from_slice(&chunk);
+            let mut out = BytesMut::with_capacity(chunk.len());
+
+            while let Ok(Some(msg)) =
+                jokoway_core::grpc::parse_grpc_message(&mut ctx.grpc_client_buf, None)
+            {
+                match apply_grpc_middlewares(
+                    &self.middlewares,
+                    &mut ctx.middleware_ctx,
+                    jokoway_core::grpc::GrpcDirection::ClientToUpstream,
+                    msg,
+                    &self.app_ctx,
+                    &ctx.request_ctx,
+                ) {
+                    jokoway_core::grpc::GrpcMessageAction::Forward(updated_msg) => {
+                        out.extend_from_slice(&jokoway_core::grpc::encode_grpc_message(
+                            &updated_msg,
+                        ));
+                    }
+                    jokoway_core::grpc::GrpcMessageAction::Drop => {}
+                    jokoway_core::grpc::GrpcMessageAction::Error(status, message) => {
+                        let mut header = ResponseHeader::build(200, None).unwrap();
+                        header
+                            .insert_header("Content-Type", "application/grpc")
+                            .ok();
+                        header.insert_header("grpc-status", status.to_string()).ok();
+                        header.insert_header("grpc-message", message).ok();
+                        session
+                            .write_response_header(Box::new(header), true)
+                            .await?;
+                        return Err(Error::explain(
+                            pingora::ErrorType::Custom("GrpcMiddlewareError"),
+                            "gRPC middleware requested error response",
+                        ));
+                    }
+                }
+            }
+
+            if !out.is_empty() {
+                *body = Some(out.freeze());
+            } else {
+                *body = None;
             }
             return Ok(());
         }
@@ -707,7 +775,7 @@ impl ProxyHttp for JokowayProxy {
         end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<Option<std::time::Duration>, Box<Error>> {
-        if !ctx.is_upgrade {
+        if !ctx.is_upgrade && ctx.grpc_mode == GrpcMode::None {
             for (idx, middleware) in self.middlewares.iter().enumerate() {
                 let middleware_ctx = &mut ctx.middleware_ctx[idx];
                 middleware.response_body_filter_dyn(
@@ -718,6 +786,52 @@ impl ProxyHttp for JokowayProxy {
                     &self.app_ctx,
                     &ctx.request_ctx,
                 )?;
+            }
+            return Ok(None);
+        }
+
+        if ctx.grpc_mode != GrpcMode::None {
+            let Some(chunk) = body.take() else {
+                return Ok(None);
+            };
+            if self.middlewares.is_empty() {
+                *body = Some(chunk);
+                return Ok(None);
+            }
+
+            ctx.grpc_upstream_buf.extend_from_slice(&chunk);
+            let mut out = BytesMut::with_capacity(chunk.len());
+
+            while let Ok(Some(msg)) =
+                jokoway_core::grpc::parse_grpc_message(&mut ctx.grpc_upstream_buf, None)
+            {
+                match apply_grpc_middlewares(
+                    &self.middlewares,
+                    &mut ctx.middleware_ctx,
+                    jokoway_core::grpc::GrpcDirection::UpstreamToClient,
+                    msg,
+                    &self.app_ctx,
+                    &ctx.request_ctx,
+                ) {
+                    jokoway_core::grpc::GrpcMessageAction::Forward(updated_msg) => {
+                        out.extend_from_slice(&jokoway_core::grpc::encode_grpc_message(
+                            &updated_msg,
+                        ));
+                    }
+                    jokoway_core::grpc::GrpcMessageAction::Drop => {}
+                    jokoway_core::grpc::GrpcMessageAction::Error(_status, _message) => {
+                        return Err(Error::explain(
+                            pingora::ErrorType::Custom("GrpcMiddlewareError"),
+                            "gRPC middleware requested error response during stream",
+                        ));
+                    }
+                }
+            }
+
+            if !out.is_empty() {
+                *body = Some(out.freeze());
+            } else {
+                *body = None;
             }
             return Ok(None);
         }
@@ -812,6 +926,29 @@ impl ProxyHttp for JokowayProxy {
     }
 
     async fn logging(&self, _session: &mut Session, _e: Option<&Error>, _ctx: &mut Self::CTX) {}
+}
+
+fn apply_grpc_middlewares(
+    middlewares: &[Arc<dyn JokowayMiddlewareDyn>],
+    middleware_ctxs: &mut [Box<dyn std::any::Any + Send + Sync>],
+    direction: jokoway_core::grpc::GrpcDirection,
+    message: jokoway_core::grpc::GrpcMessage,
+    app_ctx: &AppContext,
+    request_ctx: &RequestContext,
+) -> jokoway_core::grpc::GrpcMessageAction {
+    let mut action = jokoway_core::grpc::GrpcMessageAction::Forward(message);
+    for (idx, middleware) in middlewares.iter().enumerate() {
+        let ctx = &mut middleware_ctxs[idx];
+        action = match action {
+            jokoway_core::grpc::GrpcMessageAction::Forward(current) => middleware
+                .on_grpc_message_dyn(direction, current, ctx.as_mut(), app_ctx, request_ctx),
+            other => other,
+        };
+        if !matches!(action, jokoway_core::grpc::GrpcMessageAction::Forward(_)) {
+            break;
+        }
+    }
+    action
 }
 
 fn apply_ws_middlewares(

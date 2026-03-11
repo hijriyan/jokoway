@@ -24,6 +24,8 @@ pub struct ProxyContext {
     pub grpc_web: GrpcWebCtx,
     pub ws_client_buf: BytesMut,
     pub ws_upstream_buf: BytesMut,
+    pub grpc_client_buf: BytesMut,
+    pub grpc_upstream_buf: BytesMut,
     pub rewrite_host: Option<String>,
 
     pub ws_client_decompressor: Option<Decompress>,
@@ -46,6 +48,8 @@ impl ProxyContext {
             // Pre-allocate reasonable buffer sizes for WebSocket frames
             ws_client_buf: BytesMut::with_capacity(4096),
             ws_upstream_buf: BytesMut::with_capacity(4096),
+            grpc_client_buf: BytesMut::with_capacity(4096),
+            grpc_upstream_buf: BytesMut::with_capacity(4096),
             rewrite_host: None,
 
             ws_client_decompressor: None,
@@ -60,6 +64,12 @@ impl ProxyContext {
     pub fn clear_ws_buffers(&mut self) {
         self.ws_client_buf.clear();
         self.ws_upstream_buf.clear();
+    }
+
+    /// Clear grpc buffers for reuse
+    pub fn clear_grpc_buffers(&mut self) {
+        self.grpc_client_buf.clear();
+        self.grpc_upstream_buf.clear();
     }
 }
 
