@@ -647,8 +647,11 @@ impl ProxyHttp for JokowayProxy {
                             &updated_msg,
                         ));
                     }
-                    jokoway_core::grpc::GrpcMessageAction::Drop => {}
+                    jokoway_core::grpc::GrpcMessageAction::Drop => {
+                        ctx.clear_grpc_buffers();
+                    }
                     jokoway_core::grpc::GrpcMessageAction::Error(status, message) => {
+                        ctx.clear_grpc_buffers();
                         let mut header = ResponseHeader::build(200, None).unwrap();
                         header
                             .insert_header("Content-Type", "application/grpc")
