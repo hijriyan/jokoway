@@ -1,0 +1,29 @@
+[package]
+name = "grpc-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "grpc-server"
+path = "src/bin/grpc-server.rs"
+
+[[bin]]
+name = "grpc-gateway"
+path = "src/bin/grpc-gateway.rs"
+
+[dependencies]
+jokoway = { path = "../../jokoway" }
+pingora = { version = "0.8.0", features = ["lb", "proxy", "boringssl", "cache"] }
+async-trait = "0.1"
+tonic = "0.12"
+prost = "0.13"
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "time", "signal"] }
+tokio-stream = { version = "0.1.15", features = ["sync"] }
+log = "0.4"
+env_logger = "0.11"
+
+[build-dependencies]
+tonic-build = "0.12"
