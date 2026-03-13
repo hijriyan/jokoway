@@ -619,21 +619,21 @@ impl ProxyHttp for JokowayProxy {
             return Ok(());
         }
 
+        let Some(chunk) = body.take() else {
+            return Ok(());
+        };
+        if self.middlewares.is_empty() {
+            *body = Some(chunk);
+            return Ok(());
+        }
         if ctx.grpc_mode != GrpcMode::None {
-            let Some(chunk) = body.take() else {
-                return Ok(());
-            };
-            if self.middlewares.is_empty() {
-                *body = Some(chunk);
-                return Ok(());
-            }
-
             ctx.grpc_client_buf.extend_from_slice(&chunk);
             let mut out = BytesMut::with_capacity(chunk.len());
 
-            while let Ok(Some(msg)) =
-                jokoway_core::grpc::parse_grpc_message(&mut ctx.grpc_client_buf, None)
-            {
+            while let Ok(Some(msg)) = jokoway_core::grpc::parse_grpc_message(
+                &mut ctx.grpc_client_buf,
+                None,
+            ) {
                 match apply_grpc_middlewares(
                     &self.middlewares,
                     &mut ctx.middleware_ctx,
@@ -647,9 +647,7 @@ impl ProxyHttp for JokowayProxy {
                             &updated_msg,
                         ));
                     }
-                    jokoway_core::grpc::GrpcMessageAction::Drop => {
-                        ctx.clear_grpc_buffers();
-                    }
+                    jokoway_core::grpc::GrpcMessageAction::Drop => {}
                     jokoway_core::grpc::GrpcMessageAction::Error(status, message) => {
                         ctx.clear_grpc_buffers();
                         let mut header = ResponseHeader::build(200, None).unwrap();
@@ -675,95 +673,89 @@ impl ProxyHttp for JokowayProxy {
                 *body = None;
             }
             return Ok(());
-        }
+        } else {
+            // Reuse buffer to avoid frequent reallocations
+            ctx.ws_client_buf.extend_from_slice(&chunk);
+            let mut frames = Vec::with_capacity(16); // Pre-allocate reasonable capacity
 
-        let Some(chunk) = body.take() else {
-            return Ok(());
-        };
+            match parse_ws_frames(&mut ctx.ws_client_buf, &mut frames) {
+                WsParseResult::Ok => {
+                    let mut out = BytesMut::with_capacity(chunk.len() + 256); // Pre-allocate output buffer
 
-        // Fast path: if no extensions, pass through without parsing
-        if self.middlewares.is_empty() {
-            *body = Some(chunk);
-            return Ok(());
-        }
+                    for frame in frames {
+                        let decompressor = if frame.rsv1 {
+                            Some(
+                                ctx.ws_client_decompressor
+                                    .get_or_insert_with(|| flate2::Decompress::new(false)),
+                            )
+                        } else {
+                            None
+                        };
 
-        // Reuse buffer to avoid frequent reallocations
-        ctx.ws_client_buf.extend_from_slice(&chunk);
-        let mut frames = Vec::with_capacity(16); // Pre-allocate reasonable capacity
+                        match apply_ws_middlewares(
+                            &self.middlewares,
+                            &mut ctx.middleware_ctx,
+                            WebsocketDirection::DownstreamToUpstream,
+                            frame,
+                            decompressor,
+                            &self.app_ctx,
+                            &ctx.request_ctx,
+                        ) {
+                            WebsocketMessageAction::Forward(updated) => {
+                                encode_ws_frame_into(
+                                    &updated,
+                                    Some(mask_key_from_time()),
+                                    &mut out,
+                                );
+                            }
+                            WebsocketMessageAction::Drop => {}
+                            WebsocketMessageAction::Close(payload) => {
+                                encode_ws_frame_into(
+                                    &close_frame(payload),
+                                    Some(mask_key_from_time()),
+                                    &mut out,
+                                );
+                                break;
+                            }
+                        }
+                    }
 
-        match parse_ws_frames(&mut ctx.ws_client_buf, &mut frames) {
-            WsParseResult::Ok => {
-                let mut out = BytesMut::with_capacity(chunk.len() + 256); // Pre-allocate output buffer
-
-                for frame in frames {
-                    let decompressor = if frame.rsv1 {
-                        Some(
-                            ctx.ws_client_decompressor
-                                .get_or_insert_with(|| flate2::Decompress::new(false)),
-                        )
-                    } else {
+                    *body = if out.is_empty() {
                         None
+                    } else {
+                        Some(out.freeze())
                     };
-
-                    match apply_ws_middlewares(
+                }
+                WsParseResult::Incomplete => {
+                    *body = None;
+                }
+                WsParseResult::Invalid => {
+                    match handle_ws_error(
                         &self.middlewares,
                         &mut ctx.middleware_ctx,
                         WebsocketDirection::DownstreamToUpstream,
-                        frame,
-                        decompressor,
+                        WebsocketError::InvalidFrame,
                         &self.app_ctx,
                         &ctx.request_ctx,
                     ) {
-                        WebsocketMessageAction::Forward(updated) => {
-                            encode_ws_frame_into(&updated, Some(mask_key_from_time()), &mut out);
+                        WebsocketErrorAction::PassThrough => {
+                            let data = ctx.ws_client_buf.split_to(ctx.ws_client_buf.len()).freeze();
+                            *body = if data.is_empty() { None } else { Some(data) };
                         }
-                        WebsocketMessageAction::Drop => {}
-                        WebsocketMessageAction::Close(payload) => {
+                        WebsocketErrorAction::Drop => {
+                            ctx.clear_ws_buffers();
+                            *body = None;
+                        }
+                        WebsocketErrorAction::Close(payload) => {
+                            ctx.clear_ws_buffers();
+                            let mut out = BytesMut::with_capacity(128);
                             encode_ws_frame_into(
                                 &close_frame(payload),
                                 Some(mask_key_from_time()),
                                 &mut out,
                             );
-                            break;
+                            *body = Some(out.freeze());
                         }
-                    }
-                }
-
-                *body = if out.is_empty() {
-                    None
-                } else {
-                    Some(out.freeze())
-                };
-            }
-            WsParseResult::Incomplete => {
-                *body = None;
-            }
-            WsParseResult::Invalid => {
-                match handle_ws_error(
-                    &self.middlewares,
-                    &mut ctx.middleware_ctx,
-                    WebsocketDirection::DownstreamToUpstream,
-                    WebsocketError::InvalidFrame,
-                    &self.app_ctx,
-                    &ctx.request_ctx,
-                ) {
-                    WebsocketErrorAction::PassThrough => {
-                        let data = ctx.ws_client_buf.split_to(ctx.ws_client_buf.len()).freeze();
-                        *body = if data.is_empty() { None } else { Some(data) };
-                    }
-                    WebsocketErrorAction::Drop => {
-                        ctx.clear_ws_buffers();
-                        *body = None;
-                    }
-                    WebsocketErrorAction::Close(payload) => {
-                        ctx.clear_ws_buffers();
-                        let mut out = BytesMut::with_capacity(128);
-                        encode_ws_frame_into(
-                            &close_frame(payload),
-                            Some(mask_key_from_time()),
-                            &mut out,
-                        );
-                        *body = Some(out.freeze());
                     }
                 }
             }
@@ -793,21 +785,22 @@ impl ProxyHttp for JokowayProxy {
             return Ok(None);
         }
 
-        if ctx.grpc_mode != GrpcMode::None {
-            let Some(chunk) = body.take() else {
-                return Ok(None);
-            };
-            if self.middlewares.is_empty() {
-                *body = Some(chunk);
-                return Ok(None);
-            }
+        let Some(chunk) = body.take() else {
+            return Ok(None);
+        };
+        if self.middlewares.is_empty() {
+            *body = Some(chunk);
+            return Ok(None);
+        }
 
+        if ctx.grpc_mode != GrpcMode::None {
             ctx.grpc_upstream_buf.extend_from_slice(&chunk);
             let mut out = BytesMut::with_capacity(chunk.len());
 
-            while let Ok(Some(msg)) =
-                jokoway_core::grpc::parse_grpc_message(&mut ctx.grpc_upstream_buf, None)
-            {
+            while let Ok(Some(msg)) = jokoway_core::grpc::parse_grpc_message(
+                &mut ctx.grpc_upstream_buf,
+                None,
+            ) {
                 match apply_grpc_middlewares(
                     &self.middlewares,
                     &mut ctx.middleware_ctx,
@@ -822,10 +815,10 @@ impl ProxyHttp for JokowayProxy {
                         ));
                     }
                     jokoway_core::grpc::GrpcMessageAction::Drop => {}
-                    jokoway_core::grpc::GrpcMessageAction::Error(_status, _message) => {
+                    jokoway_core::grpc::GrpcMessageAction::Error(_status, message) => {
                         return Err(Error::explain(
                             pingora::ErrorType::Custom("GrpcMiddlewareError"),
-                            "gRPC middleware requested error response during stream",
+                            message,
                         ));
                     }
                 }
@@ -837,90 +830,80 @@ impl ProxyHttp for JokowayProxy {
                 *body = None;
             }
             return Ok(None);
-        }
+        } else {
+            ctx.ws_upstream_buf.extend_from_slice(&chunk);
+            let mut frames = Vec::new();
+            match parse_ws_frames(&mut ctx.ws_upstream_buf, &mut frames) {
+                WsParseResult::Ok => {
+                    let mut out = BytesMut::new();
+                    for frame in frames {
+                        let decompressor = if frame.rsv1 {
+                            Some(
+                                ctx.ws_upstream_decompressor
+                                    .get_or_insert_with(|| flate2::Decompress::new(false)),
+                            )
+                        } else {
+                            None
+                        };
 
-        let Some(chunk) = body.take() else {
-            return Ok(None);
-        };
-
-        // Fast path: if no extensions, pass through without parsing
-        if self.middlewares.is_empty() {
-            *body = Some(chunk);
-            return Ok(None);
-        }
-
-        ctx.ws_upstream_buf.extend_from_slice(&chunk);
-        let mut frames = Vec::new();
-        match parse_ws_frames(&mut ctx.ws_upstream_buf, &mut frames) {
-            WsParseResult::Ok => {
-                let mut out = BytesMut::new();
-                for frame in frames {
-                    let decompressor = if frame.rsv1 {
-                        Some(
-                            ctx.ws_upstream_decompressor
-                                .get_or_insert_with(|| flate2::Decompress::new(false)),
-                        )
+                        match apply_ws_middlewares(
+                            &self.middlewares,
+                            &mut ctx.middleware_ctx,
+                            WebsocketDirection::UpstreamToDownstream,
+                            frame,
+                            decompressor,
+                            &self.app_ctx,
+                            &ctx.request_ctx,
+                        ) {
+                            WebsocketMessageAction::Forward(updated) => {
+                                encode_ws_frame_into(&updated, None, &mut out);
+                            }
+                            WebsocketMessageAction::Drop => {}
+                            WebsocketMessageAction::Close(payload) => {
+                                encode_ws_frame_into(&close_frame(payload), None, &mut out);
+                                break;
+                            }
+                        }
+                    }
+                    if out.is_empty() {
+                        *body = None;
                     } else {
-                        None
-                    };
-
-                    match apply_ws_middlewares(
+                        *body = Some(out.freeze());
+                    }
+                }
+                WsParseResult::Incomplete => {
+                    *body = None;
+                }
+                WsParseResult::Invalid => {
+                    match handle_ws_error(
                         &self.middlewares,
                         &mut ctx.middleware_ctx,
                         WebsocketDirection::UpstreamToDownstream,
-                        frame,
-                        decompressor,
+                        WebsocketError::InvalidFrame,
                         &self.app_ctx,
                         &ctx.request_ctx,
                     ) {
-                        WebsocketMessageAction::Forward(updated) => {
-                            encode_ws_frame_into(&updated, None, &mut out);
+                        WebsocketErrorAction::PassThrough => {
+                            let data = ctx
+                                .ws_upstream_buf
+                                .split_to(ctx.ws_upstream_buf.len())
+                                .freeze();
+                            if data.is_empty() {
+                                *body = None;
+                            } else {
+                                *body = Some(data);
+                            }
                         }
-                        WebsocketMessageAction::Drop => {}
-                        WebsocketMessageAction::Close(payload) => {
-                            encode_ws_frame_into(&close_frame(payload), None, &mut out);
-                            break;
-                        }
-                    }
-                }
-                if out.is_empty() {
-                    *body = None;
-                } else {
-                    *body = Some(out.freeze());
-                }
-            }
-            WsParseResult::Incomplete => {
-                *body = None;
-            }
-            WsParseResult::Invalid => {
-                match handle_ws_error(
-                    &self.middlewares,
-                    &mut ctx.middleware_ctx,
-                    WebsocketDirection::UpstreamToDownstream,
-                    WebsocketError::InvalidFrame,
-                    &self.app_ctx,
-                    &ctx.request_ctx,
-                ) {
-                    WebsocketErrorAction::PassThrough => {
-                        let data = ctx
-                            .ws_upstream_buf
-                            .split_to(ctx.ws_upstream_buf.len())
-                            .freeze();
-                        if data.is_empty() {
+                        WebsocketErrorAction::Drop => {
+                            ctx.ws_upstream_buf.clear();
                             *body = None;
-                        } else {
-                            *body = Some(data);
                         }
-                    }
-                    WebsocketErrorAction::Drop => {
-                        ctx.ws_upstream_buf.clear();
-                        *body = None;
-                    }
-                    WebsocketErrorAction::Close(payload) => {
-                        ctx.ws_upstream_buf.clear();
-                        let mut out = BytesMut::new();
-                        encode_ws_frame_into(&close_frame(payload), None, &mut out);
-                        *body = Some(out.freeze());
+                        WebsocketErrorAction::Close(payload) => {
+                            ctx.ws_upstream_buf.clear();
+                            let mut out = BytesMut::new();
+                            encode_ws_frame_into(&close_frame(payload), None, &mut out);
+                            *body = Some(out.freeze());
+                        }
                     }
                 }
             }

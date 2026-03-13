@@ -14,8 +14,6 @@ pub enum GrpcDirection {
 pub struct GrpcMessage {
     /// Whether the message is compressed, indicated by the first byte of the Length-Prefixed-Message header.
     pub compressed: bool,
-    /// The encoding mechanism used for compression, typically populated from the `grpc-encoding` HTTP header.
-    pub grpc_encoding: Option<String>,
     /// The actual message payload (compressed or uncompressed, depending on flags).
     pub payload: Bytes,
 }
@@ -70,7 +68,6 @@ pub fn parse_grpc_message(
 
     Ok(Some(GrpcMessage {
         compressed,
-        grpc_encoding: None,
         payload,
     }))
 }
