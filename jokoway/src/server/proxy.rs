@@ -10,7 +10,7 @@ use crate::server::upstream::UpstreamManager;
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::Version;
-use http::header::{CONTENT_LENGTH, TRANSFER_ENCODING};
+use http::header::{CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING};
 use jokoway_core::websocket::{
     WsFrame, WsOpcode, WsParseResult, encode_ws_frame_into, mask_key_from_time, parse_ws_frames,
 };
@@ -400,12 +400,12 @@ impl ProxyHttp for JokowayProxy {
             // Check if Connection header needs to be added
             let needs_connection_upgrade = req_header
                 .headers
-                .get("Connection")
+                .get(CONNECTION)
                 .and_then(|value| value.to_str().ok())
                 .is_none_or(|value| !value.to_ascii_lowercase().contains("upgrade"));
 
             if needs_connection_upgrade {
-                req_header.insert_header("Connection", "Upgrade").ok();
+                req_header.insert_header(CONNECTION, "Upgrade").ok();
             }
         }
 
@@ -414,7 +414,7 @@ impl ProxyHttp for JokowayProxy {
             ctx.grpc_mode = crate::server::context::GrpcMode::Web;
         } else if req_header
             .headers
-            .get("Content-Type")
+            .get(CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .map(|v| v.starts_with("application/grpc"))
             .unwrap_or(false)
@@ -448,8 +448,8 @@ impl ProxyHttp for JokowayProxy {
         }
 
         let mut header = ResponseHeader::build(404, None).unwrap();
-        header.insert_header("Content-Type", "text/plain").ok();
-        header.insert_header("Content-Length", "0").ok();
+        header.insert_header(CONTENT_TYPE, "text/plain").ok();
+        header.insert_header(CONTENT_LENGTH, "0").ok();
         session
             .write_response_header(Box::new(header), true)
             .await?;
@@ -522,10 +522,10 @@ impl ProxyHttp for JokowayProxy {
 
         // Middleware might change the body size, so remove Content-Length
         if !self.middlewares.is_empty() {
-            upstream_request.remove_header("content-length");
+            upstream_request.remove_header(&CONTENT_LENGTH);
         }
         if let Some(host) = &ctx.rewrite_host {
-            upstream_request.insert_header("Host", host).map_err(|e| {
+            upstream_request.insert_header(HOST, host).map_err(|e| {
                 Error::explain(pingora::ErrorType::InvalidHTTPHeader, e.to_string())
             })?;
         }
@@ -652,7 +652,7 @@ impl ProxyHttp for JokowayProxy {
                         ctx.clear_grpc_buffers();
                         let mut header = ResponseHeader::build(200, None).unwrap();
                         header
-                            .insert_header("Content-Type", "application/grpc")
+                            .insert_header(CONTENT_TYPE, "application/grpc")
                             .ok();
                         header.insert_header("grpc-status", status.to_string()).ok();
                         header.insert_header("grpc-message", message).ok();

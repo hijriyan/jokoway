@@ -16,6 +16,7 @@ log = { workspace = true }
 flate2 = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
+http = { workspace = true }
 
 # Optional dependencies
 zstd = { version = "0.13", optional = true }

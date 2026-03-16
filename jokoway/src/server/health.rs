@@ -2,6 +2,7 @@ use crate::config::models::{HealthCheckConfig, HealthCheckType};
 use crate::server::proxy::CachedPeerConfig;
 use async_trait::async_trait;
 use dashmap::DashMap;
+use http::header::HOST;
 use pingora::Error;
 use pingora::http::RequestHeader;
 use pingora::lb::Backend;
@@ -99,7 +100,7 @@ impl JokowayHttpHealthCheck {
         if path != "/" || method != "GET" {
             let mut req = RequestHeader::build(method, path.as_bytes(), None).unwrap();
             if !host.is_empty() {
-                req.append_header("Host", host).ok();
+                req.append_header(HOST, host).ok();
             }
             if let Some(headers) = &self.config.headers {
                 for (key, value) in headers {

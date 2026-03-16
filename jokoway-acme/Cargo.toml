@@ -24,6 +24,7 @@ rcgen = { workspace = true }
 arc-swap = { workspace = true }
 bytes = { workspace = true }
 serde_yaml = { workspace = true }
+http = { workspace = true }
 hyper-rustls = { version = "0.27", default-features = false, features = [
     "http1",
     "http2",

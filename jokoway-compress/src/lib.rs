@@ -1,5 +1,6 @@
 pub mod prelude;
 use async_trait::async_trait;
+use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, TRANSFER_ENCODING, VARY};
 use serde::{Deserialize, Serialize};
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -571,13 +572,13 @@ impl JokowayMiddleware for CompressMiddleware {
     ) -> Result<bool, Box<Error>> {
         let req_header = session.req_header_mut();
 
-        if let Some(accept_encoding) = req_header.headers.get("Accept-Encoding") {
+        if let Some(accept_encoding) = req_header.headers.get(ACCEPT_ENCODING) {
             if let Ok(accept_encoding_str) = accept_encoding.to_str() {
                 ctx.compression_algo = self.negotiate_compression(accept_encoding_str);
             }
             // Always remove the header to prevent upstream from compressing
             // We want to handle compression ourselves
-            let _ = req_header.remove_header("Accept-Encoding");
+            req_header.remove_header(&ACCEPT_ENCODING);
         }
 
         Ok(false)
@@ -634,16 +635,16 @@ impl JokowayMiddleware for CompressMiddleware {
                 #[cfg(feature = "brotli")]
                 CompressionAlgo::Brotli => "br",
             };
-            let _ = upstream_response.insert_header("Content-Encoding", encoding);
+            upstream_response.insert_header(CONTENT_ENCODING, encoding)?;
 
             // Remove Content-Length as it will change
-            let _ = upstream_response.remove_header("Content-Length");
+            upstream_response.remove_header(&CONTENT_LENGTH);
 
             // Add Vary header
-            let _ = upstream_response.append_header("Vary", "Accept-Encoding");
+            upstream_response.append_header(VARY, "Accept-Encoding")?;
 
             // Ensure Transfer-Encoding is chunked since Content-Length is removed
-            let _ = upstream_response.insert_header("Transfer-Encoding", "chunked");
+            upstream_response.insert_header(TRANSFER_ENCODING, "chunked")?;
 
             // Initialize compressor with configurable levels
             let compressor = match algo {
@@ -671,7 +672,7 @@ impl JokowayMiddleware for CompressMiddleware {
                             log::error!("Failed to create zstd encoder: {}", e);
                             ctx.compression_algo = None;
                             ctx.should_compress = false;
-                            let _ = upstream_response.remove_header("Content-Encoding");
+                            upstream_response.remove_header(&CONTENT_ENCODING);
                             return Ok(());
                         }
                     }

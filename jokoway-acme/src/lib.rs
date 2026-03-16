@@ -9,6 +9,8 @@ use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
     NewOrder, OrderStatus, RetryPolicy,
 };
+
+use http::header::{CONTENT_TYPE};
 use jokoway_core::{Context, JokowayExtension, JokowayMiddleware};
 use jokoway_rules::registry::get_registered_hosts;
 use pingora::{
@@ -712,7 +714,7 @@ impl JokowayMiddleware for AcmeMiddleware {
             let token = path.trim_start_matches("/.well-known/acme-challenge/");
             if let Some(key_auth) = self.acme_manager.get_challenge(token) {
                 let mut header = ResponseHeader::build(200, Some(key_auth.len())).unwrap();
-                header.insert_header("Content-Type", "text/plain").unwrap();
+                header.insert_header(CONTENT_TYPE, "text/plain").unwrap();
 
                 session
                     .write_response_header(Box::new(header), false)
