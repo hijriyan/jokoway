@@ -44,13 +44,13 @@ pub fn parse_grpc_message(
     let compressed_flag = buf[0];
     let length = u32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]) as usize;
 
-    if let Some(max) = max_size {
-        if length > max {
-            return Err(format!(
-                "gRPC message size {} exceeds maximum allowed {}",
-                length, max
-            ));
-        }
+    if let Some(max) = max_size
+        && length > max
+    {
+        return Err(format!(
+            "gRPC message size {} exceeds maximum allowed {}",
+            length, max
+        ));
     }
 
     if buf.len() < 5 + length {

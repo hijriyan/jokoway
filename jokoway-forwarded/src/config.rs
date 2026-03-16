@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
 /// Configuration settings for the HTTP Forwarded middleware.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ForwardedSettings {
     /// Whether the middleware is enabled. Defaults to false.
     #[serde(default = "default_false")]
@@ -17,15 +17,6 @@ pub struct ForwardedSettings {
 
 fn default_false() -> bool {
     false
-}
-
-impl Default for ForwardedSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            trusted_proxies: Vec::new(),
-        }
-    }
 }
 
 /// Pre-parsed CIDR ranges for efficient IP lookup.
