@@ -17,11 +17,20 @@ All notable changes to this project will be documented in this file.
 - Add `jokoway-forwarded` extension to process forwarded headers and manage trusted proxies.
 - Prioritize URI host over the Host header when determining the current host for forwarded header parsing.
 - Integrate git-cliff for automated changelog and release notes generation.
+- Upgrade Pingora to 0.8.0 and introduce configurable HTTP server options for keep-alive, H2C, and CONNECT method proxying.
+- Introduce comprehensive peer options for fine-grained control over upstream connection behavior, including timeouts, TLS, TCP, and HTTP/2 settings.
+- Add and reorganize peer options with new settings for timeouts, TLS, TCP, and HTTP.
+- Add new gRPC example for jokoway with Python server and React/TypeScript client.
+- Default `ForwardedSettings.enabled` to false.
+- Introduce gRPC message parsing, encoding, and middleware integration for stream filtering.
+- Migrate the gRPC example from Python to Rust, introducing a Rust-based gateway with a message interception middleware and a Rust gRPC server.
 
 ### 🐛 Bug Fixes
 
 - Clippy warnings
 - Generate release notes job
+- Add `user_timeout` to TcpKeepaliveConfig and grpc proxy support
+- Clear gRPC buffers when message action is Drop or Error.
 
 ### 📚 Documentation
 
@@ -31,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Enable http_forwarded configuration in jokoway.yml.
 - Update httpbin service port mapping, add jokoway dependency, and configure jokoway upstream to use 127.0.0.1 for httpbin.
 - Update jokoway configuration and README
+- Update changelog
 
 ### 🔨 Refactor
 
@@ -47,6 +57,7 @@ All notable changes to this project will be documented in this file.
 - Rename feature flags by removing the `-extension` suffix for consistency.
 - Introduce structured prelude modules across crates for better import organization and clarity.
 - Rename `SslSettings` to `TlsSettings` and remove `min_version`/`max_version` configuration options.
+- Proxy body handling to consolidate initial chunk processing and explicitly separate gRPC and WebSocket message parsing paths.
 ## [0.1.0-alpha.6] - 2026-02-20
 
 ### build

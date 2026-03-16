@@ -571,7 +571,7 @@ jokoway:
 | :--- | :---: | :--- |
 | `name` | ✅ | Unique identifier for this service. |
 | `host` | ✅ | The name of the **upstream** cluster to route traffic to. Must match an upstream's `name` field. |
-| `protocols` | ✅ | List of protocols this service accepts: `"http"`, `"https"`, `"ws"` (WebSocket), `"wss"` (WebSocket over TLS). |
+| `protocols` | ✅ | List of protocols this service accepts: `"http"`, `"https"`, `"ws"` (WebSocket), `"wss"` (WebSocket over TLS), `"grpc"`, `"grpcs"` (gRPC over TLS). |
 | `routes` | ✅ | List of routing rules. See **Route Fields** below. |
 
 ##### Route Fields
