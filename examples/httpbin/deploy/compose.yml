@@ -13,11 +13,11 @@ services:
     depends_on:
       - httpbin
     volumes:
-      - ./jokoway.yml:/etc/jokoway/jokoway.yml
+      - ./jokoway.yml:/opt/jokoway/jokoway.yml
       - jokoway-data:/opt/jokoway
     environment:
       - RUST_LOG=debug
-    command: "-c /etc/jokoway/jokoway.yml"
+    command: "-c /opt/jokoway/jokoway.yml"
 
 volumes:
   jokoway-data:
