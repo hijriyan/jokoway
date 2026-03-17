@@ -32,6 +32,7 @@ use jokoway_rules::Matcher;
 pub struct RuntimeRoute {
     pub matcher: Box<dyn Matcher>,
     pub priority: i32,
+    pub max_retries: u32,
     pub req_transformer: Option<Arc<dyn RequestTransformer>>,
     pub res_transformer: Option<Arc<dyn ResponseTransformer>>,
 }
@@ -59,6 +60,8 @@ fn compile_service(
 ) -> Result<RuntimeService, JokowayError> {
     let total_rules = service.routes.len();
     let mut routes = Vec::with_capacity(total_rules);
+
+    let service_max_retries = service.max_retries.unwrap_or(1);
 
     for route_config in &service.routes {
         let matcher = match parse_rule(&route_config.rule) {
@@ -105,9 +108,15 @@ fn compile_service(
                 }
             });
 
+        let effective_max_retries = route_config
+            .max_retries
+            .or(Some(service_max_retries))
+            .unwrap_or(1);
+
         routes.push(RuntimeRoute {
             matcher,
             priority: route_config.priority.unwrap_or(0),
+            max_retries: effective_max_retries,
             req_transformer,
             res_transformer,
         });
@@ -249,6 +258,7 @@ impl ServiceManager {
                         .map(|r| RuntimeRoute {
                             matcher: r.matcher.clone_box(),
                             priority: r.priority,
+                            max_retries: r.max_retries,
                             req_transformer: r.req_transformer.clone(),
                             res_transformer: r.res_transformer.clone(),
                         })
@@ -266,6 +276,7 @@ impl ServiceManager {
                     .map(|r| RuntimeRoute {
                         matcher: r.matcher.clone_box(),
                         priority: r.priority,
+                        max_retries: r.max_retries,
                         req_transformer: r.req_transformer.clone(),
                         res_transformer: r.res_transformer.clone(),
                     })
@@ -313,6 +324,7 @@ impl ServiceManager {
                             .map(|r| RuntimeRoute {
                                 matcher: r.matcher.clone_box(),
                                 priority: r.priority,
+                                max_retries: r.max_retries,
                                 req_transformer: r.req_transformer.clone(),
                                 res_transformer: r.res_transformer.clone(),
                             })
@@ -330,6 +342,7 @@ impl ServiceManager {
                             .map(|r| RuntimeRoute {
                                 matcher: r.matcher.clone_box(),
                                 priority: r.priority,
+                                max_retries: r.max_retries,
                                 req_transformer: r.req_transformer.clone(),
                                 res_transformer: r.res_transformer.clone(),
                             })
@@ -369,6 +382,7 @@ impl ServiceManager {
                             .map(|r| RuntimeRoute {
                                 matcher: r.matcher.clone_box(),
                                 priority: r.priority,
+                                max_retries: r.max_retries,
                                 req_transformer: r.req_transformer.clone(),
                                 res_transformer: r.res_transformer.clone(),
                             })
@@ -400,24 +414,28 @@ mod tests {
                     host: "http_backend".to_string(),
                     protocols: vec![ServiceProtocol::Http],
                     routes: vec![],
+                    ..Default::default()
                 },
                 Service {
                     name: "https_only".to_string(),
                     host: "https_backend".to_string(),
                     protocols: vec![ServiceProtocol::Https],
                     routes: vec![],
+                    ..Default::default()
                 },
                 Service {
                     name: "dual_protocol".to_string(),
                     host: "dual_backend".to_string(),
                     protocols: vec![ServiceProtocol::Http, ServiceProtocol::Https],
                     routes: vec![],
+                    ..Default::default()
                 },
                 Service {
                     name: "no_protocol".to_string(),
                     host: "default_backend".to_string(),
                     protocols: vec![],
                     routes: vec![],
+                    ..Default::default()
                 },
             ]
             .into_iter()
@@ -473,17 +491,16 @@ mod tests {
                         name: "test_route_1".to_string(),
                         rule: "Host(`example.com`)".to_string(),
                         priority: Some(10),
-                        request_transformer: None,
-                        response_transformer: None,
+                        ..Default::default()
                     },
                     Route {
                         name: "test_route_2".to_string(),
                         rule: "Host(`api.example.com`)".to_string(),
                         priority: Some(5),
-                        request_transformer: None,
-                        response_transformer: None,
+                        ..Default::default()
                     },
                 ],
+                ..Default::default()
             }]
             .into_iter()
             .map(Arc::new)

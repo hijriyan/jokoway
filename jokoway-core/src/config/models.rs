@@ -216,6 +216,7 @@ pub struct Service {
     pub name: String,
     pub host: String,
     pub protocols: Vec<ServiceProtocol>,
+    pub max_retries: Option<u32>,
     #[serde(default)]
     pub routes: Vec<Route>,
 }
@@ -227,6 +228,7 @@ pub struct Route {
     pub name: String,
     pub rule: String,
     pub priority: Option<i32>,
+    pub max_retries: Option<u32>,
     pub request_transformer: Option<String>,
     pub response_transformer: Option<String>,
 }

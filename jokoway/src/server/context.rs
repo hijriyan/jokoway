@@ -27,6 +27,8 @@ pub struct ProxyContext {
     pub grpc_client_buf: BytesMut,
     pub grpc_upstream_buf: BytesMut,
     pub rewrite_host: Option<String>,
+    pub max_retries: u32,
+    pub retries_attempted: u32,
 
     pub ws_client_decompressor: Option<Decompress>,
     pub ws_upstream_decompressor: Option<Decompress>,
@@ -51,6 +53,8 @@ impl ProxyContext {
             grpc_client_buf: BytesMut::with_capacity(4096),
             grpc_upstream_buf: BytesMut::with_capacity(4096),
             rewrite_host: None,
+            max_retries: 1,
+            retries_attempted: 0,
 
             ws_client_decompressor: None,
             ws_upstream_decompressor: None,

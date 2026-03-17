@@ -10,7 +10,7 @@ use instant_acme::{
     NewOrder, OrderStatus, RetryPolicy,
 };
 
-use http::header::{CONTENT_TYPE};
+use http::header::CONTENT_TYPE;
 use jokoway_core::{Context, JokowayExtension, JokowayMiddleware};
 use jokoway_rules::registry::get_registered_hosts;
 use pingora::{

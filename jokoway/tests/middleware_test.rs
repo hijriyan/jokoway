@@ -147,6 +147,7 @@ async fn test_jokoway_middleware() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -235,6 +236,7 @@ async fn test_websocket_middleware() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -567,6 +569,7 @@ async fn test_elapsed_time_middleware() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -730,6 +733,7 @@ async fn test_request_ctx_middleware() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };

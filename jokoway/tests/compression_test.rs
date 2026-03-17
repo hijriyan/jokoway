@@ -63,6 +63,7 @@ async fn test_compression() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })
         .with_compression(CompressionSettings {
             gzip: Some(GzipSettings::default()),

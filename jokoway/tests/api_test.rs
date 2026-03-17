@@ -254,6 +254,7 @@ async fn test_api_services() {
             rule: "PathPrefix(`/`)".to_string(),
             ..Default::default()
         }],
+        ..Default::default()
     };
     let resp = client
         .post(format!("{}/services/add", base_url))
@@ -285,6 +286,7 @@ async fn test_api_services() {
             rule: "PathPrefix(`/updated`)".to_string(),
             ..Default::default()
         }],
+        ..Default::default()
     };
     let resp = client
         .post(format!("{}/services/update", base_url))
@@ -386,6 +388,7 @@ async fn test_proxy_via_api() {
             rule: "PathPrefix(`/target`)".to_string(),
             ..Default::default()
         }],
+        ..Default::default()
     };
     let resp = client
         .post(format!("{}/services/add", api_base))

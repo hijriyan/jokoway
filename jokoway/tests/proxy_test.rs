@@ -59,6 +59,7 @@ async fn test_http_proxy() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -101,6 +102,87 @@ async fn test_http_proxy() {
 }
 
 #[tokio::test]
+async fn test_retry_default_one() {
+    let _ = env_logger::try_init();
+
+    let mock_server = start_http_mock().await;
+    Mock::given(method("GET"))
+        .and(path("/hello"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("world"))
+        .mount(&mock_server)
+        .await;
+
+    let dead_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead_port = dead_listener.local_addr().unwrap().port();
+    drop(dead_listener);
+    let dead_addr = format!("127.0.0.1:{}", dead_port);
+
+    let mock_addr = mock_server.uri().trim_start_matches("http://").to_string();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let ups_name = "mock-retry";
+    let config = JokowayConfig {
+        http_listen: format!("127.0.0.1:{}", port),
+        upstreams: vec![Upstream {
+            name: ups_name.to_string(),
+            servers: vec![
+                UpstreamServer {
+                    host: dead_addr,
+                    weight: Some(1),
+                    ..Default::default()
+                },
+                UpstreamServer {
+                    host: mock_addr,
+                    weight: Some(1),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        services: vec![Arc::new(Service {
+            name: "retry-service".to_string(),
+            host: ups_name.to_string(),
+            protocols: vec![ServiceProtocol::Http],
+            routes: vec![Route {
+                name: "retry-route".to_string(),
+                rule: "PathPrefix(`/`)".to_string(),
+                priority: Some(1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })],
+        ..Default::default()
+    };
+
+    let opt = Opt::default();
+    let app = App::new(config, None, opt, vec![]);
+    std::thread::spawn(move || {
+        let _ = app.run();
+    });
+
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:{}/hello", port);
+    let mut success = false;
+
+    for _ in 0..50 {
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status() == 200
+        {
+            let body = resp.text().await.unwrap();
+            assert_eq!(body, "world");
+            success = true;
+            break;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    assert!(success, "Expected request to succeed via one retry");
+}
+
+#[tokio::test]
 async fn test_ws_proxy() {
     let _ = env_logger::try_init();
 
@@ -137,6 +219,7 @@ async fn test_ws_proxy() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -248,6 +331,7 @@ async fn test_https_proxy() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -355,6 +439,7 @@ async fn test_mtls_upstream() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
@@ -495,6 +580,7 @@ async fn test_health_check() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };

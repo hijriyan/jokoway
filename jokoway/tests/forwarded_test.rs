@@ -71,6 +71,7 @@ async fn test_forwarded_middleware_with_trusted_proxies() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })
         .build();
 
@@ -211,6 +212,7 @@ async fn test_forwarded_middleware_edge_proxy() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })
         .build();
 
@@ -396,6 +398,7 @@ async fn test_forwarded_middleware_request_ctx_extraction() {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })
         .build();
 

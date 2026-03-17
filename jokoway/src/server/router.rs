@@ -15,6 +15,7 @@ pub struct RouteMatch {
     pub upstream_name: Arc<str>,
     pub req_transformer: Option<Arc<dyn RequestTransformer>>,
     pub res_transformer: Option<Arc<dyn ResponseTransformer>>,
+    pub max_retries: u32,
 }
 
 pub struct RouteIndex {
@@ -334,6 +335,7 @@ impl Router {
                             upstream_name: service.host.clone(),
                             req_transformer: route.req_transformer.clone(),
                             res_transformer: route.res_transformer.clone(),
+                            max_retries: route.max_retries,
                         });
                     }
                 }
@@ -370,9 +372,9 @@ mod tests {
                         name: "http_route".to_string(),
                         rule: "Host(`example.com`)".to_string(),
                         priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
+                        ..Default::default()
                     }],
+                    ..Default::default()
                 },
                 Service {
                     name: "https_only".to_string(),
@@ -382,9 +384,9 @@ mod tests {
                         name: "https_route".to_string(),
                         rule: "Host(`secure.example.com`)".to_string(),
                         priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
+                        ..Default::default()
                     }],
+                    ..Default::default()
                 },
                 Service {
                     name: "dual_protocol".to_string(),
@@ -394,9 +396,9 @@ mod tests {
                         name: "dual_route".to_string(),
                         rule: "Host(`dual.example.com`)".to_string(),
                         priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
+                        ..Default::default()
                     }],
+                    ..Default::default()
                 },
                 Service {
                     name: "no_protocol".to_string(),
@@ -406,9 +408,9 @@ mod tests {
                         name: "default_route".to_string(),
                         rule: "Host(`default.example.com`)".to_string(),
                         priority: None,
-                        request_transformer: None,
-                        response_transformer: None,
+                        ..Default::default()
                     }],
+                    ..Default::default()
                 },
             ]
             .into_iter()
@@ -509,9 +511,9 @@ mod tests {
                 name: "new_route".to_string(),
                 rule: "Host(`new.example.com`)".to_string(),
                 priority: None,
-                request_transformer: None,
-                response_transformer: None,
+                ..Default::default()
             }],
+            ..Default::default()
         };
 
         service_manager
@@ -547,9 +549,9 @@ mod tests {
                     name: "route_a".to_string(),
                     rule: "Host(`a.com`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "service_b".to_string(),
@@ -559,9 +561,9 @@ mod tests {
                     name: "route_b".to_string(),
                     rule: "Host(`b.com`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "service_hybrid".to_string(),
@@ -571,9 +573,9 @@ mod tests {
                     name: "route_hybrid".to_string(),
                     rule: "Host(`c.com`) || PathPrefix(`/c`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "service_wild".to_string(),
@@ -583,9 +585,9 @@ mod tests {
                     name: "route_wild".to_string(),
                     rule: "PathPrefix(`/wild`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "service_complex_no_wild".to_string(),
@@ -597,9 +599,9 @@ mod tests {
                     // Both branches have specific hosts, so entire rule is NOT wildcard.
                     rule: "Host(`c.com`) || Host(`a.com`) && PathPrefix(`/c`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
         ];
 
@@ -730,9 +732,9 @@ mod tests {
                     rule: "Host(`api.com`) && PathPrefix(`/api/users`) && Method(`POST`)"
                         .to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "general_api".to_string(),
@@ -742,9 +744,9 @@ mod tests {
                     name: "r2".to_string(),
                     rule: "Host(`api.com`) && PathPrefix(`/api`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
         ];
 
@@ -788,9 +790,9 @@ mod tests {
                     name: "r1".to_string(),
                     rule: "Host(`api.com`) && Path(`/api/v1/health`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "api_v1_post".to_string(),
@@ -800,9 +802,9 @@ mod tests {
                     name: "r2".to_string(),
                     rule: "Host(`api.com`) && PathPrefix(`/api/v1`) && Method(`POST`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "api_regex_fallback".to_string(),
@@ -812,9 +814,9 @@ mod tests {
                     name: "r4".to_string(),
                     rule: "Host(`api.com`) && PathRegexp(`^/api/v[0-9]+/special$`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "api_general".to_string(),
@@ -824,9 +826,9 @@ mod tests {
                     name: "r3".to_string(),
                     rule: "Host(`api.com`) && PathPrefix(`/api`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "api_test_env".to_string(),
@@ -836,9 +838,9 @@ mod tests {
                     name: "r5".to_string(),
                     rule: "Host(`api.test.com`) && PathPrefix(`/api`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "catch_all_wildcard".to_string(),
@@ -848,9 +850,9 @@ mod tests {
                     name: "r6".to_string(),
                     rule: "PathPrefix(`/wildcard`)".to_string(),
                     priority: None,
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
         ];
 
@@ -925,9 +927,9 @@ mod tests {
                     name: "r1".to_string(),
                     rule: "Host(`ws.com`)".to_string(),
                     priority: Some(10),
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
             Service {
                 name: "http_fallback".to_string(),
@@ -937,9 +939,9 @@ mod tests {
                     name: "r2".to_string(),
                     rule: "Host(`ws.com`)".to_string(),
                     priority: Some(5),
-                    request_transformer: None,
-                    response_transformer: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
         ];
 

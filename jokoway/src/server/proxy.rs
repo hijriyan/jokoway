@@ -443,6 +443,8 @@ impl ProxyHttp for JokowayProxy {
             ctx.upstream_name = Some(match_result.upstream_name);
             ctx.response_transformer = match_result.res_transformer;
             ctx.is_upgrade = is_upgrade;
+            ctx.max_retries = match_result.max_retries;
+            ctx.retries_attempted = 0;
 
             return Ok(false);
         }
@@ -476,7 +478,6 @@ impl ProxyHttp for JokowayProxy {
             )
         })?;
 
-        // Select backend using load balancer - Weighted selection (round-robin when weights are equal)
         let backend = load_balancer.select(b"", 256).ok_or_else(|| {
             Error::explain(pingora::ErrorType::InternalError, "No available backends")
         })?;
@@ -508,6 +509,20 @@ impl ProxyHttp for JokowayProxy {
         }
 
         Ok(Box::new(peer))
+    }
+
+    fn fail_to_connect(
+        &self,
+        _session: &mut Session,
+        _peer: &HttpPeer,
+        ctx: &mut Self::CTX,
+        mut e: Box<Error>,
+    ) -> Box<Error> {
+        if ctx.retries_attempted < ctx.max_retries {
+            ctx.retries_attempted += 1;
+            e.set_retry(true);
+        }
+        e
     }
 
     async fn upstream_request_filter(
@@ -630,10 +645,9 @@ impl ProxyHttp for JokowayProxy {
             ctx.grpc_client_buf.extend_from_slice(&chunk);
             let mut out = BytesMut::with_capacity(chunk.len());
 
-            while let Ok(Some(msg)) = jokoway_core::grpc::parse_grpc_message(
-                &mut ctx.grpc_client_buf,
-                None,
-            ) {
+            while let Ok(Some(msg)) =
+                jokoway_core::grpc::parse_grpc_message(&mut ctx.grpc_client_buf, None)
+            {
                 match apply_grpc_middlewares(
                     &self.middlewares,
                     &mut ctx.middleware_ctx,
@@ -651,9 +665,7 @@ impl ProxyHttp for JokowayProxy {
                     jokoway_core::grpc::GrpcMessageAction::Error(status, message) => {
                         ctx.clear_grpc_buffers();
                         let mut header = ResponseHeader::build(200, None).unwrap();
-                        header
-                            .insert_header(CONTENT_TYPE, "application/grpc")
-                            .ok();
+                        header.insert_header(CONTENT_TYPE, "application/grpc").ok();
                         header.insert_header("grpc-status", status.to_string()).ok();
                         header.insert_header("grpc-message", message).ok();
                         session
@@ -797,10 +809,9 @@ impl ProxyHttp for JokowayProxy {
             ctx.grpc_upstream_buf.extend_from_slice(&chunk);
             let mut out = BytesMut::with_capacity(chunk.len());
 
-            while let Ok(Some(msg)) = jokoway_core::grpc::parse_grpc_message(
-                &mut ctx.grpc_upstream_buf,
-                None,
-            ) {
+            while let Ok(Some(msg)) =
+                jokoway_core::grpc::parse_grpc_message(&mut ctx.grpc_upstream_buf, None)
+            {
                 match apply_grpc_middlewares(
                     &self.middlewares,
                     &mut ctx.middleware_ctx,
