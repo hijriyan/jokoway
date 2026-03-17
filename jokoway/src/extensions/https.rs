@@ -31,11 +31,10 @@ impl HttpsExtension {
     }
 
     fn self_signed_pair(
-        tls: &crate::config::models::TlsSettings,
+        tls: Option<&crate::config::models::TlsSettings>,
     ) -> Option<(X509, PKey<boring::pkey::Private>)> {
         let subject_alt_names = tls
-            .sans
-            .clone()
+            .and_then(|t| t.sans.clone())
             .filter(|sans| !sans.is_empty())
             .unwrap_or_else(|| vec!["localhost".to_string(), "127.0.0.1".to_string()]);
 
@@ -98,8 +97,10 @@ impl JokowayExtension for HttpsExtension {
                 ))));
             }
         };
-        if let Some(tls) = &config.tls {
-            let cert_paths = match (&tls.server_cert, &tls.server_key) {
+        let tls_cfg = config.tls.as_ref();
+
+        let cert_paths = match tls_cfg {
+            Some(tls) => match (&tls.server_cert, &tls.server_key) {
                 (Some(cert), Some(key)) => {
                     if !Path::new(cert).exists() {
                         return Err(Box::new(JokowayError::Tls(format!(
@@ -122,230 +123,215 @@ impl JokowayExtension for HttpsExtension {
                     )));
                 }
                 _ => None,
-            };
+            },
+            None => None,
+        };
 
-            let base_pair = if let Some((cert_path, key_path)) = cert_paths {
-                match Self::load_pem_pair_from_files(cert_path, key_path) {
-                    Ok(pair) => Some(pair),
-                    Err(e) => {
-                        log::error!("Failed to load TLS certs from config: {}", e);
-                        return Err(Box::new(JokowayError::Tls(format!(
-                            "Failed to load TLS certs from config: {}",
-                            e
-                        ))));
-                    }
-                }
-            } else {
-                None
-            };
-
-            let fallback_pair = match base_pair.clone() {
-                Some(pair) => Some(pair),
-                None => {
-                    let generated = Self::self_signed_pair(tls);
-                    if generated.is_some() {
-                        log::debug!("Using self-signed certificate fallback");
-                    }
-                    generated
-                }
-            };
-
-            // Set initial certificate on the acceptor
-            if let Some((cert, key)) = fallback_pair.as_ref() {
-                if let Err(e) = ssl_acceptor.set_private_key(key) {
-                    log::error!("Failed to set fallback private key: {}", e);
+        let base_pair = if let Some((cert_path, key_path)) = cert_paths {
+            match Self::load_pem_pair_from_files(cert_path, key_path) {
+                Ok(pair) => Some(pair),
+                Err(e) => {
+                    log::error!("Failed to load TLS certs from config: {}", e);
                     return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set fallback private key: {}",
-                        e
-                    ))));
-                }
-                if let Err(e) = ssl_acceptor.set_certificate(cert) {
-                    log::error!("Failed to set fallback certificate: {}", e);
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set fallback certificate: {}",
+                        "Failed to load TLS certs from config: {}",
                         e
                     ))));
                 }
             }
+        } else {
+            None
+        };
 
-            let tls_callback = app_ctx.get::<TlsCallback>();
+        let fallback_pair = match base_pair.clone() {
+            Some(pair) => Some(pair),
+            None => {
+                let generated = Self::self_signed_pair(tls_cfg);
+                if generated.is_some() {
+                    log::debug!("Using self-signed certificate fallback");
+                }
+                generated
+            }
+        }
+        .ok_or_else(|| {
+            Box::new(JokowayError::Tls(
+                "Failed to generate self-signed certificate".to_string(),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
-            // --- 1. SNI Callback ---
-            let fallback_pair_for_sni = fallback_pair.clone();
-            let tls_cb_sni = tls_callback.clone();
+        if let Err(e) = ssl_acceptor.set_private_key(&fallback_pair.1) {
+            log::error!("Failed to set fallback private key: {}", e);
+            return Err(Box::new(JokowayError::Tls(format!(
+                "Failed to set fallback private key: {}",
+                e
+            ))));
+        }
+        if let Err(e) = ssl_acceptor.set_certificate(&fallback_pair.0) {
+            log::error!("Failed to set fallback certificate: {}", e);
+            return Err(Box::new(JokowayError::Tls(format!(
+                "Failed to set fallback certificate: {}",
+                e
+            ))));
+        }
 
-            ssl_acceptor.set_servername_callback(move |ssl_ref, alert| {
-                // 1. Dynamic Handler
-                if let Some(c) = tls_cb_sni.as_ref() {
-                    let h_arc = c.get_handler();
-                    if let Some(handler) = h_arc.as_ref() {
-                        match handler.servername_callback(ssl_ref, alert) {
-                            Ok(()) => return Ok(()),
-                            Err(_e) => {
-                                // Delegate returned error/pass-through, but we can try fallback
-                            }
-                        }
+        let tls_callback = app_ctx.get::<TlsCallback>();
+
+        let fallback_pair_for_sni = Some(fallback_pair.clone());
+        let tls_cb_sni = tls_callback.clone();
+        ssl_acceptor.set_servername_callback(move |ssl_ref, alert| {
+            if let Some(c) = tls_cb_sni.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    match handler.servername_callback(ssl_ref, alert) {
+                        Ok(()) => return Ok(()),
+                        Err(_e) => {}
                     }
                 }
-
-                // 2. Fallback Pair
-                if let Some((cert, key)) = fallback_pair_for_sni.as_ref() {
-                    let _ = ssl_ref.set_certificate(cert);
-                    let _ = ssl_ref.set_private_key(key);
-                }
-                Ok(())
-            });
-
-            // --- 2. ALPN Callback (must be set AFTER enable_h2() which overwrites it) ---
-            let tls_cb_alpn = tls_callback.clone();
-            ssl_acceptor.set_alpn_select_callback(move |ssl_ref, client_protos| {
-                // 1. Dynamic Handler (e.g. ACME TLS-ALPN-01)
-                if let Some(c) = tls_cb_alpn.as_ref() {
-                    let h_arc = c.get_handler();
-                    if let Some(handler) = h_arc.as_ref() {
-                        match handler.alpn_select_callback(ssl_ref, client_protos) {
-                            Ok(idx) => return Ok(idx),
-                            Err(AlpnError::NOACK) => { /* fallthrough */ }
-                            Err(e) => return Err(e),
-                        }
-                    }
-                }
-
-                // 2. Standard Default: prefer H2, fallback to H1
-                if contains_alpn_protocol(client_protos, AlpnProtocol::H2) {
-                    Ok(AlpnProtocol::H2.as_bytes())
-                } else {
-                    Ok(AlpnProtocol::H1.as_bytes())
-                }
-            });
-
-            // --- 3. Cert Selection Callback ---
-            let tls_cb_cert = tls_callback.clone();
-            ssl_acceptor.set_select_certificate_callback(move |client_hello| {
-                if let Some(c) = tls_cb_cert.as_ref() {
-                    let h_arc = c.get_handler();
-                    if let Some(handler) = h_arc.as_ref() {
-                        return handler.select_certificate_callback(client_hello);
-                    }
-                }
-                Ok(())
-            });
-
-            // --- 4. Verify Callback ---
-            let tls_cb_verify = tls_callback.clone();
-            let verify_mode = if let Some(ca_path) = &tls.cacert {
-                if !Path::new(ca_path).exists() {
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "CA certificate file not found: {}",
-                        ca_path
-                    ))));
-                }
-
-                if let Err(e) = ssl_acceptor.set_ca_file(ca_path) {
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set CA file for client auth: {}",
-                        e
-                    ))));
-                }
-
-                // Enforce client auth if CA is specified
-                SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
-            } else {
-                SslVerifyMode::NONE
-            };
-
-            // Note: using set_verify_callback overrides default verification logic
-            // We pass the determined verify_mode
-            ssl_acceptor.set_verify_callback(verify_mode, move |preverify, x509_ctx| {
-                if let Some(c) = tls_cb_verify.as_ref() {
-                    let h_arc = c.get_handler();
-                    if let Some(handler) = h_arc.as_ref() {
-                        return handler.verify_callback(preverify, x509_ctx);
-                    }
-                }
-                preverify
-            });
-
-            // --- 5. Session Callbacks ---
-            let tls_cb_sess_new = tls_callback.clone();
-            ssl_acceptor.set_new_session_callback(move |ssl, session| {
-                if let Some(c) = tls_cb_sess_new.as_ref() {
-                    let h_arc = c.get_handler();
-                    if let Some(handler) = h_arc.as_ref() {
-                        handler.new_session_callback(ssl, session);
-                    }
-                }
-            });
-
-            let tls_cb_sess_remove = tls_callback.clone();
-            ssl_acceptor.set_remove_session_callback(move |ctx, session| {
-                if let Some(c) = tls_cb_sess_remove.as_ref() {
-                    let h_arc = c.get_handler();
-                    if let Some(handler) = h_arc.as_ref() {
-                        handler.remove_session_callback(ctx, session);
-                    }
-                }
-            });
-
-            unsafe {
-                let tls_cb_sess_get = tls_callback.clone();
-                ssl_acceptor.set_get_session_callback(move |ssl, id| {
-                    if let Some(c) = tls_cb_sess_get.as_ref() {
-                        let h_arc = c.get_handler();
-                        if let Some(handler) = h_arc.as_ref() {
-                            return handler.get_session_callback(ssl, id);
-                        }
-                    }
-                    Ok(None)
-                });
             }
 
-            // --- 6. PSK Callback ---
-            let tls_cb_psk = tls_callback.clone();
-            ssl_acceptor.set_psk_server_callback(move |ssl, id, psk| {
-                if let Some(c) = tls_cb_psk.as_ref() {
+            if let Some((cert, key)) = fallback_pair_for_sni.as_ref() {
+                let _ = ssl_ref.set_certificate(cert);
+                let _ = ssl_ref.set_private_key(key);
+            }
+            Ok(())
+        });
+
+        let tls_cb_alpn = tls_callback.clone();
+        ssl_acceptor.set_alpn_select_callback(move |ssl_ref, client_protos| {
+            if let Some(c) = tls_cb_alpn.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    match handler.alpn_select_callback(ssl_ref, client_protos) {
+                        Ok(idx) => return Ok(idx),
+                        Err(AlpnError::NOACK) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+
+            if contains_alpn_protocol(client_protos, AlpnProtocol::H2) {
+                Ok(AlpnProtocol::H2.as_bytes())
+            } else {
+                Ok(AlpnProtocol::H1.as_bytes())
+            }
+        });
+
+        let tls_cb_cert = tls_callback.clone();
+        ssl_acceptor.set_select_certificate_callback(move |client_hello| {
+            if let Some(c) = tls_cb_cert.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    return handler.select_certificate_callback(client_hello);
+                }
+            }
+            Ok(())
+        });
+
+        let tls_cb_verify = tls_callback.clone();
+        let verify_mode = if let Some(ca_path) = tls_cfg.and_then(|t| t.cacert.as_ref()) {
+            if !Path::new(ca_path).exists() {
+                return Err(Box::new(JokowayError::Tls(format!(
+                    "CA certificate file not found: {}",
+                    ca_path
+                ))));
+            }
+
+            if let Err(e) = ssl_acceptor.set_ca_file(ca_path) {
+                return Err(Box::new(JokowayError::Tls(format!(
+                    "Failed to set CA file for client auth: {}",
+                    e
+                ))));
+            }
+
+            SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
+        } else {
+            SslVerifyMode::NONE
+        };
+
+        ssl_acceptor.set_verify_callback(verify_mode, move |preverify, x509_ctx| {
+            if let Some(c) = tls_cb_verify.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    return handler.verify_callback(preverify, x509_ctx);
+                }
+            }
+            preverify
+        });
+
+        let tls_cb_sess_new = tls_callback.clone();
+        ssl_acceptor.set_new_session_callback(move |ssl, session| {
+            if let Some(c) = tls_cb_sess_new.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    handler.new_session_callback(ssl, session);
+                }
+            }
+        });
+
+        let tls_cb_sess_remove = tls_callback.clone();
+        ssl_acceptor.set_remove_session_callback(move |ctx, session| {
+            if let Some(c) = tls_cb_sess_remove.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    handler.remove_session_callback(ctx, session);
+                }
+            }
+        });
+
+        unsafe {
+            let tls_cb_sess_get = tls_callback.clone();
+            ssl_acceptor.set_get_session_callback(move |ssl, id| {
+                if let Some(c) = tls_cb_sess_get.as_ref() {
                     let h_arc = c.get_handler();
                     if let Some(handler) = h_arc.as_ref() {
-                        return handler.psk_server_callback(ssl, id, psk);
+                        return handler.get_session_callback(ssl, id);
                     }
                 }
-                Ok(0)
+                Ok(None)
             });
+        }
 
-            // --- 7. OCSP Status Callback ---
-            let tls_cb_status = tls_callback.clone();
-            ssl_acceptor
-                .set_status_callback(move |ssl| {
-                    if let Some(c) = tls_cb_status.as_ref() {
-                        let h_arc = c.get_handler();
-                        if let Some(handler) = h_arc.as_ref() {
-                            return handler.status_callback(ssl);
-                        }
-                    }
-                    Ok(true)
-                })
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        let tls_cb_psk = tls_callback.clone();
+        ssl_acceptor.set_psk_server_callback(move |ssl, id, psk| {
+            if let Some(c) = tls_cb_psk.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    return handler.psk_server_callback(ssl, id, psk);
+                }
+            }
+            Ok(0)
+        });
 
-            // --- 8. Keylog Callback ---
-            let tls_cb_keylog = tls_callback.clone();
-            ssl_acceptor.set_keylog_callback(move |ssl, line| {
-                if let Some(c) = tls_cb_keylog.as_ref() {
+        let tls_cb_status = tls_callback.clone();
+        ssl_acceptor
+            .set_status_callback(move |ssl| {
+                if let Some(c) = tls_cb_status.as_ref() {
                     let h_arc = c.get_handler();
                     if let Some(handler) = h_arc.as_ref() {
-                        handler.keylog_callback(ssl, line);
+                        return handler.status_callback(ssl);
                     }
                 }
-            });
+                Ok(true)
+            })
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-            if let Some(ciphers) = &tls.cipher_suites {
-                let ciphers_str = ciphers.join(":");
-                if let Err(e) = ssl_acceptor.set_cipher_list(&ciphers_str) {
-                    log::error!("Failed to set cipher suites: {}", e);
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to set cipher suites: {}",
-                        e
-                    ))));
+        let tls_cb_keylog = tls_callback.clone();
+        ssl_acceptor.set_keylog_callback(move |ssl, line| {
+            if let Some(c) = tls_cb_keylog.as_ref() {
+                let h_arc = c.get_handler();
+                if let Some(handler) = h_arc.as_ref() {
+                    handler.keylog_callback(ssl, line);
                 }
+            }
+        });
+
+        if let Some(ciphers) = tls_cfg.and_then(|t| t.cipher_suites.as_ref()) {
+            let ciphers_str = ciphers.join(":");
+            if let Err(e) = ssl_acceptor.set_cipher_list(&ciphers_str) {
+                log::error!("Failed to set cipher suites: {}", e);
+                return Err(Box::new(JokowayError::Tls(format!(
+                    "Failed to set cipher suites: {}",
+                    e
+                ))));
             }
         }
         let tls_settings = TlsSettings::from(ssl_acceptor);
