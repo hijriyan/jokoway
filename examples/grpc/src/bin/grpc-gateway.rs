@@ -103,6 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         ..Default::default()
     };
