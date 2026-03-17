@@ -356,23 +356,67 @@ jokoway:
 ```
 
 > [!CAUTION]
-> The Management API gives full control over routing and upstreams. **Always bind to a private address** (e.g., `127.0.0.1`) and protect it with `basic_auth`. Never expose it to the public internet.
+> The Management API gives full control over routing and upstreams. **Always bind to a private address** (e.g., `127.0.0.1`) and protect it with `basic_auth` and/or `api_keys`. Never expose it to the public internet.
 
 ##### API Fields
 
 | Field | Required | Description |
 | :--- | :---: | :--- |
-| `listen` | ❌ | Address and port to listen on (e.g., `"127.0.0.1:9090"`). If omitted, the API server is not started. |
-| `basic_auth` | ❌ | Enable HTTP Basic Authentication. See **Basic Auth** below. |
+| `listen` | ✅ | Address and port to listen on (e.g., `"127.0.0.1:9090"`). Omit the entire `api` section to disable the API server. |
+| `basic_auth` | ❌ | Enable HTTP Basic Authentication. Accepts a single credential object or a list. See **Basic Auth** below. |
+| `api_keys` | ❌ | Enable API key authentication. Accepts a single string or a list. See **API Keys** below. |
 | `rate_limit` | ❌ | Protect the API from excessive requests. See **Rate Limit** below. |
 | `openapi` | ❌ | Customize the built-in OpenAPI/Swagger documentation. See **OpenAPI** below. |
 
 ##### Basic Auth
 
+`basic_auth` can be configured as a single credential object or a list of credentials. If multiple credentials are provided, any matching username/password pair is accepted.
+
+Single credential:
+
+```yaml
+jokoway:
+  api:
+    basic_auth:
+      username: "admin"
+      password: "secure_password"
+```
+
+Multiple credentials:
+
+```yaml
+jokoway:
+  api:
+    basic_auth:
+      - username: "admin"
+        password: "secure_password"
+      - username: "ops"
+        password: "another_password"
+```
+
 | Field | Required | Description |
 | :--- | :---: | :--- |
 | `username` | ✅ | Username for HTTP Basic Authentication. |
 | `password` | ✅ | Password for HTTP Basic Authentication. |
+
+##### API Keys
+
+`api_keys` can be configured as a single string or a list of strings. If multiple keys are provided, any matching key is accepted. When both `basic_auth` and `api_keys` are configured, either method authorizes the request.
+
+```yaml
+jokoway:
+  api:
+    api_keys:
+      - "key-1"
+      - "key-2"
+```
+
+Send the key using either header:
+
+```bash
+curl -H 'X-API-Key: key-1' http://127.0.0.1:9090/upstreams/list
+curl -H 'Authorization: Bearer key-2' http://127.0.0.1:9090/upstreams/list
+```
 
 ##### Rate Limit
 

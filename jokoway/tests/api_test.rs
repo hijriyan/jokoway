@@ -30,7 +30,7 @@ async fn start_app_with_api(api_settings: ApiSettings) -> u16 {
     let mut api_settings = api_settings;
 
     // Override listen address to use the random port
-    api_settings.listen = Some(format!("127.0.0.1:{}", port));
+    api_settings.listen = format!("127.0.0.1:{}", port);
 
     let config = JokowayConfig {
         http_listen: "127.0.0.1:0".to_string(), // Disable HTTP for this test or use random
@@ -56,10 +56,16 @@ async fn test_api_basic_auth() {
     let _ = env_logger::try_init();
 
     let api_settings = ApiSettings {
-        basic_auth: Some(BasicAuth {
-            username: "admin".to_string(),
-            password: "secret".to_string(),
-        }),
+        basic_auth: Some(vec![
+            BasicAuth {
+                username: "admin".to_string(),
+                password: "secret".to_string(),
+            },
+            BasicAuth {
+                username: "ops".to_string(),
+                password: "hunter2".to_string(),
+            },
+        ]),
         ..Default::default()
     };
 
@@ -88,6 +94,102 @@ async fn test_api_basic_auth() {
     let resp = client
         .get(format!("{}/upstreams/list", base_url))
         .basic_auth("admin", Some("secret"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // 4. Test with another correct auth - should succeed
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .basic_auth("ops", Some("hunter2"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn test_api_api_keys() {
+    let _ = env_logger::try_init();
+
+    let api_settings = ApiSettings {
+        api_keys: Some(vec!["key-1".to_string(), "key-2".to_string()]),
+        ..Default::default()
+    };
+
+    let port = start_app_with_api(api_settings).await;
+    let base_url = format!("http://127.0.0.1:{}", port);
+    let client = Client::new();
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .header("X-API-Key", "wrong")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .header("X-API-Key", "key-1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .header("Authorization", "Bearer wrong")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .header("Authorization", "Bearer key-2")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn test_api_auth_basic_or_api_key() {
+    let _ = env_logger::try_init();
+
+    let api_settings = ApiSettings {
+        basic_auth: Some(vec![BasicAuth {
+            username: "admin".to_string(),
+            password: "secret".to_string(),
+        }]),
+        api_keys: Some(vec!["key-1".to_string()]),
+        ..Default::default()
+    };
+
+    let port = start_app_with_api(api_settings).await;
+    let base_url = format!("http://127.0.0.1:{}", port);
+    let client = Client::new();
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .basic_auth("admin", Some("secret"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = client
+        .get(format!("{}/upstreams/list", base_url))
+        .header("X-API-Key", "key-1")
         .send()
         .await
         .unwrap();
@@ -337,7 +439,7 @@ async fn test_proxy_via_api() {
     let proxy_port = get_random_port().await;
 
     let api_settings = ApiSettings {
-        listen: Some(format!("127.0.0.1:{}", api_port)),
+        listen: format!("127.0.0.1:{}", api_port),
         ..Default::default()
     };
 

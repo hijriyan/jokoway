@@ -214,14 +214,35 @@ impl BackgroundService for ApiService {
             .route("/services/remove", post(remove_service))
             .with_state(state);
 
-        // Apply basic auth if configured
-        if let Some(ref auth) = self.settings.basic_auth {
-            let username = auth.username.clone();
-            let password = auth.password.clone();
+        let basic_auth = self
+            .settings
+            .basic_auth
+            .clone()
+            .filter(|auths| !auths.is_empty())
+            .map(Arc::new);
+        let api_keys = self
+            .settings
+            .api_keys
+            .clone()
+            .filter(|keys| !keys.is_empty())
+            .map(Arc::new);
+
+        let basic_auth_enabled = basic_auth.is_some();
+        let api_keys_enabled = api_keys.is_some();
+
+        if basic_auth_enabled || api_keys_enabled {
+            let basic_auth = basic_auth.clone();
+            let api_keys = api_keys.clone();
             protected_routes = protected_routes.layer(middleware::from_fn(move |req, next| {
-                basic_auth_middleware(req, next, username.clone(), password.clone())
+                auth_middleware(req, next, basic_auth.clone(), api_keys.clone())
             }));
-            log::info!("API basic authentication enabled");
+
+            if basic_auth_enabled {
+                log::info!("API basic authentication enabled");
+            }
+            if api_keys_enabled {
+                log::info!("API key authentication enabled");
+            }
         }
 
         // Apply rate limiting if configured
@@ -261,7 +282,11 @@ impl BackgroundService for ApiService {
             .merge(SwaggerUi::new(swagger_path).url(openapi_path, openapi))
             .layer(middleware::from_fn(no_cache_middleware));
 
-        let listen_addr = self.settings.listen.as_ref().unwrap();
+        let listen_addr = self.settings.listen.trim();
+        if listen_addr.is_empty() {
+            log::error!("API listen address is empty; set jokoway.api.listen");
+            return;
+        }
         match TcpListener::bind(listen_addr).await {
             Ok(listener) => {
                 log::info!("API server listening on {}", listen_addr);
@@ -304,39 +329,94 @@ impl JokowayExtension for ApiExtension {
 }
 
 // Middleware functions
-async fn basic_auth_middleware(
+async fn auth_middleware(
     req: Request<axum::body::Body>,
     next: Next,
-    username: String,
-    password: String,
+    basic_auth: Option<Arc<Vec<crate::config::models::BasicAuth>>>,
+    api_keys: Option<Arc<Vec<String>>>,
 ) -> Response {
+    use axum::http::header::WWW_AUTHENTICATE;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    let headers = req.headers();
+
+    let mut authorized = false;
+    if let Some(ref credentials) = basic_auth {
+        authorized = authorized || validate_basic_auth(headers, credentials);
+    }
+    if let Some(ref keys) = api_keys {
+        authorized = authorized || validate_api_key(headers, keys);
+    }
+
+    if authorized {
+        return next.run(req).await;
+    }
+
+    let mut unauthorized_headers = HeaderMap::new();
+    if basic_auth.is_some() {
+        unauthorized_headers.insert(
+            WWW_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=\"API\""),
+        );
+    } else if api_keys.is_some() {
+        unauthorized_headers.insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        unauthorized_headers,
+        "Unauthorized",
+    )
+        .into_response()
+}
+
+fn validate_basic_auth(
+    headers: &axum::http::HeaderMap,
+    credentials: &[crate::config::models::BasicAuth],
+) -> bool {
     use axum::http::header::AUTHORIZATION;
 
-    let auth_header = req
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
-
+    let auth_header = headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok());
     if let Some(auth) = auth_header
         && let Some(encoded) = auth.strip_prefix("Basic ")
     {
         use base64::Engine;
         if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded)
-            && let Ok(credentials) = String::from_utf8(decoded)
+            && let Ok(decoded_credentials) = String::from_utf8(decoded)
         {
-            let parts: Vec<&str> = credentials.splitn(2, ':').collect();
-            if parts.len() == 2 && parts[0] == username && parts[1] == password {
-                return next.run(req).await;
+            let parts: Vec<&str> = decoded_credentials.splitn(2, ':').collect();
+            if parts.len() == 2
+                && credentials
+                    .iter()
+                    .any(|auth| auth.username == parts[0] && auth.password == parts[1])
+            {
+                return true;
             }
         }
     }
+    false
+}
 
-    (
-        StatusCode::UNAUTHORIZED,
-        [("WWW-Authenticate", "Basic realm=\"API\"")],
-        "Unauthorized",
-    )
-        .into_response()
+fn validate_api_key(headers: &axum::http::HeaderMap, keys: &[String]) -> bool {
+    use axum::http::header::AUTHORIZATION;
+
+    if let Some(value) = headers
+        .get(axum::http::HeaderName::from_static("x-api-key"))
+        .and_then(|h| h.to_str().ok())
+        && keys.iter().any(|k| k == value)
+    {
+        return true;
+    }
+
+    let auth_header = headers.get(AUTHORIZATION).and_then(|h| h.to_str().ok());
+    if let Some(auth) = auth_header
+        && let Some(token) = auth.strip_prefix("Bearer ")
+        && !token.is_empty()
+        && keys.iter().any(|k| k == token)
+    {
+        return true;
+    }
+
+    false
 }
 
 async fn no_cache_middleware(req: Request<axum::body::Body>, next: Next) -> Response {

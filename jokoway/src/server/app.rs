@@ -86,12 +86,14 @@ impl App {
         // Register API extension if configured
         #[cfg(feature = "api")]
         {
-            if let Some(api_settings) = &app.config.api
-                && api_settings.listen.is_some()
-            {
-                app.add_extension(crate::extensions::api::ApiExtension::new(
-                    api_settings.clone(),
-                ));
+            if let Some(api_settings) = &app.config.api {
+                if api_settings.listen.trim().is_empty() {
+                    log::warn!("API configured but listen address is empty; skipping API server");
+                } else {
+                    app.add_extension(crate::extensions::api::ApiExtension::new(
+                        api_settings.clone(),
+                    ));
+                }
             }
         }
 

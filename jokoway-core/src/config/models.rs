@@ -1,5 +1,5 @@
 pub use pingora::server::configuration::ServerConf;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -49,10 +49,51 @@ pub struct JokowayConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ApiSettings {
-    pub listen: Option<String>,
-    pub basic_auth: Option<BasicAuth>,
+    pub listen: String,
+    #[serde(default, deserialize_with = "deserialize_basic_auth_credentials")]
+    pub basic_auth: Option<Vec<BasicAuth>>,
+    #[serde(default, deserialize_with = "deserialize_api_keys")]
+    pub api_keys: Option<Vec<String>>,
     pub rate_limit: Option<RateLimit>,
     pub openapi: Option<OpenApiSettings>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BasicAuthCredentials {
+    Single(BasicAuth),
+    Multiple(Vec<BasicAuth>),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ApiKeyCredentials {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+fn deserialize_basic_auth_credentials<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<BasicAuth>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<BasicAuthCredentials>::deserialize(deserializer)?;
+    Ok(value.map(|v| match v {
+        BasicAuthCredentials::Single(auth) => vec![auth],
+        BasicAuthCredentials::Multiple(auths) => auths,
+    }))
+}
+
+fn deserialize_api_keys<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<ApiKeyCredentials>::deserialize(deserializer)?;
+    Ok(value.map(|v| match v {
+        ApiKeyCredentials::Single(key) => vec![key],
+        ApiKeyCredentials::Multiple(keys) => keys,
+    }))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

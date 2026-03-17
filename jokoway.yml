@@ -207,13 +207,19 @@ jokoway:
   # API Management Configuration (optional)
   # implementation depends on 'api' feature
   api:
-    # Address to listen on for the management API (optional)
+    # Address to listen on for the management API (required when api is configured)
     listen: "127.0.0.1:9090"
 
     # Basic Authentication for the API (optional)
     basic_auth:
       username: "admin"
       password: "secure_password"
+
+    # API key authentication for the API (optional)
+    # Can be a single string or a list of strings
+    api_keys:
+      - "key-1"
+      - "key-2"
 
     # Rate Limiting for the API (optional)
     rate_limit:
