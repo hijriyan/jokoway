@@ -24,6 +24,21 @@ All notable changes to this project will be documented in this file.
 - Default `ForwardedSettings.enabled` to false.
 - Introduce gRPC message parsing, encoding, and middleware integration for stream filtering.
 - Migrate the gRPC example from Python to Rust, introducing a Rust-based gateway with a message interception middleware and a Rust gRPC server.
+- *(proxy)* Add request retry mechanism with configurable max retries
+
+- Add `max_retries` field to Service and Route config models
+  - Track retry attempts in ProxyContext and set retry flag in fail_to_connect
+  - Propagate max_retries from config through runtime routes to route matching
+  - Update test cases to use Default::default() for new fields
+  - Fix style issues (trailing commas, formatting) in multiple files
+- *(api)* Add API key authentication and support multiple credentials
+
+- Add `api_keys` configuration field supporting single or multiple keys
+  - Extend `basic_auth` to accept both single credential and list format
+  - Update authentication middleware to validate either method
+  - Make `listen` field required when API is configured
+  - Update documentation with examples for new authentication options
+  - Add comprehensive tests for API key and combined authentication scenarios
 
 ### 🐛 Bug Fixes
 
@@ -31,6 +46,19 @@ All notable changes to this project will be documented in this file.
 - Generate release notes job
 - Add `user_timeout` to TcpKeepaliveConfig and grpc proxy support
 - Clear gRPC buffers when message action is Drop or Error.
+- *(example)* Update jokoway config volume mount and command path
+
+Correct the volume mount path and the command argument to point to the correct configuration file location (/opt/jokoway/jokoway.yml) instead of the incorrect /etc/jokoway path.
+- *(https)* Ensure SSL acceptor is always initialized
+
+Move SSL acceptor creation outside TLS configuration check to guarantee its availability for proxy service setup. This prevents runtime errors when TLS configuration is absent but HTTPS proxy still requires SSL context.
+- *(https)* Handle optional TLS config and ensure fallback certificate
+
+Refactor TLS initialization to properly handle optional TLS configuration.
+  The self-signed certificate generation now requires a fallback certificate
+  to always be available, preventing runtime errors when TLS is not configured.
+  Also simplify conditional logic for accessing TLS settings throughout the
+  callback setup process.
 
 ### 📚 Documentation
 
@@ -41,6 +69,9 @@ All notable changes to this project will be documented in this file.
 - Update httpbin service port mapping, add jokoway dependency, and configure jokoway upstream to use 127.0.0.1 for httpbin.
 - Update jokoway configuration and README
 - Update changelog
+- Update README and CHANGELOG for gRPC support
+
+Update README.md to include "grpc" and "grpcs" in the list of accepted protocols for a service. Update CHANGELOG.md to document recent changes including gRPC support, Pingora upgrade, and configuration updates.
 
 ### 🔨 Refactor
 
@@ -58,6 +89,11 @@ All notable changes to this project will be documented in this file.
 - Introduce structured prelude modules across crates for better import organization and clarity.
 - Rename `SslSettings` to `TlsSettings` and remove `min_version`/`max_version` configuration options.
 - Proxy body handling to consolidate initial chunk processing and explicitly separate gRPC and WebSocket message parsing paths.
+- Simplify conditional and derive Default trait
+- Use http crate constants for header names
+
+Replace string literals with constants from the `http` crate for HTTP header names to improve type safety and maintainability. Add `http` as a workspace dependency to the compress and acme modules where these constants are used.
+- *(tests)* Remove unused TlsSettings import from acme test
 ## [0.1.0-alpha.6] - 2026-02-20
 
 ### build
