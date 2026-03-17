@@ -1,7 +1,7 @@
 #![cfg(feature = "acme_tests")]
 
 use jokoway::config::models::{
-    JokowayConfig, Route, Service, ServiceProtocol, TlsSettings, Upstream, UpstreamServer,
+    JokowayConfig, Route, Service, ServiceProtocol, Upstream, UpstreamServer,
 };
 use jokoway::prelude::acme::{AcmeChallengeType, AcmeSettings};
 use jokoway::server::app::App;
