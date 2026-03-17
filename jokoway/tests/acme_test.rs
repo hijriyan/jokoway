@@ -82,6 +82,7 @@ fn create_acme_config(
                 priority: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         })],
         upstreams: vec![Upstream {
             name: "dummy".to_string(),

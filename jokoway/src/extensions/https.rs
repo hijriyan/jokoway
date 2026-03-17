@@ -88,18 +88,17 @@ impl JokowayExtension for HttpsExtension {
         let proxy =
             JokowayProxy::new(router, Arc::new(app_ctx.clone()), middlewares.clone(), true)?;
 
+        let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()) {
+            Ok(acceptor) => acceptor,
+            Err(e) => {
+                log::error!("Failed to create SSL acceptor: {}", e);
+                return Err(Box::new(JokowayError::Tls(format!(
+                    "Failed to create SSL acceptor: {}",
+                    e
+                ))));
+            }
+        };
         if let Some(tls) = &config.tls {
-            let mut ssl_acceptor = match SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()) {
-                Ok(acceptor) => acceptor,
-                Err(e) => {
-                    log::error!("Failed to create SSL acceptor: {}", e);
-                    return Err(Box::new(JokowayError::Tls(format!(
-                        "Failed to create SSL acceptor: {}",
-                        e
-                    ))));
-                }
-            };
-
             let cert_paths = match (&tls.server_cert, &tls.server_key) {
                 (Some(cert), Some(key)) => {
                     if !Path::new(cert).exists() {
@@ -348,31 +347,30 @@ impl JokowayExtension for HttpsExtension {
                     ))));
                 }
             }
-
-            let tls_settings = TlsSettings::from(ssl_acceptor);
-            let mut builder = ProxyServiceBuilder::new(&server.configuration, proxy.clone())
-                .name("Jokoway HTTPS Proxy Service");
-
-            if let Some(opts) = &config.http_server_options {
-                let mut server_options = pingora::apps::HttpServerOptions::default();
-                server_options.keepalive_request_limit = opts.keepalive_request_limit;
-                server_options.h2c = opts.h2c;
-                server_options.allow_connect_method_proxying = opts.allow_connect_method_proxying;
-                builder = builder.server_options(server_options);
-            }
-
-            let mut https_service = builder.build();
-            https_service.add_tls_with_settings(
-                config.https_listen.as_ref().unwrap(),
-                None,
-                tls_settings,
-            );
-            server.add_service(https_service);
-            log::info!(
-                "HTTPS proxy listening on {}",
-                config.https_listen.as_ref().unwrap()
-            );
         }
+        let tls_settings = TlsSettings::from(ssl_acceptor);
+        let mut builder = ProxyServiceBuilder::new(&server.configuration, proxy.clone())
+            .name("Jokoway HTTPS Proxy Service");
+
+        if let Some(opts) = &config.http_server_options {
+            let mut server_options = pingora::apps::HttpServerOptions::default();
+            server_options.keepalive_request_limit = opts.keepalive_request_limit;
+            server_options.h2c = opts.h2c;
+            server_options.allow_connect_method_proxying = opts.allow_connect_method_proxying;
+            builder = builder.server_options(server_options);
+        }
+
+        let mut https_service = builder.build();
+        https_service.add_tls_with_settings(
+            config.https_listen.as_ref().unwrap(),
+            None,
+            tls_settings,
+        );
+        server.add_service(https_service);
+        log::info!(
+            "HTTPS proxy listening on {}",
+            config.https_listen.as_ref().unwrap()
+        );
         Ok(())
     }
 }
