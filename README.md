@@ -273,15 +273,15 @@ Already-compressed formats (e.g., `image/jpeg`, `image/png`, `video/mp4`, `appli
 Jokoway supports two approaches to TLS: **manual certificates** you provide yourself, and **automatic provisioning** via the ACME protocol (Let's Encrypt).
 
 > [!WARNING]
-> Both `ssl` and `acme` require `https_listen` to be configured in the `jokoway` section.
+> Both `tls` and `acme` require `https_listen` to be configured in the `jokoway` section.
 
-#### Manual Certificates (`ssl`)
+#### Manual Certificates (`tls`)
 
 Provide your own certificate and private key directly. Ideal for internal services, self-signed setups, or when you manage certificates externally.
 
 ```yaml
 jokoway:
-  ssl:
+  tls:
     server_cert: "/path/to/cert.pem"
     server_key: "/path/to/key.pem"
     cacert: "/path/to/ca.pem"
