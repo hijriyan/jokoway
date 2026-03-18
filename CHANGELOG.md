@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.0-rc.1] - 2026-03-18
+
+### build
+
+- *(grpc)* Add http dependency and fill default config
+
+Add missing http crate to both grpc client and server dependencies.
+  Also fill remaining fields with default values in grpc gateway config.
 
 ### ⚙️  Miscellaneous
 
@@ -72,6 +79,8 @@ Refactor TLS initialization to properly handle optional TLS configuration.
 - Update README and CHANGELOG for gRPC support
 
 Update README.md to include "grpc" and "grpcs" in the list of accepted protocols for a service. Update CHANGELOG.md to document recent changes including gRPC support, Pingora upgrade, and configuration updates.
+- Update changelog for recent features and fixes
+- Rename `ssl` config option to `tls` for consistency
 
 ### 🔨 Refactor
 

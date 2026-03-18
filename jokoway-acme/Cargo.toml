@@ -1,6 +1,6 @@
 [package]
 name = "jokoway-acme"
-version = "0.1.0-alpha.5"
+version = "0.1.0-rc.1"
 edition = "2024"
 license = "MIT"
 authors = ["Hijriyan <april@kuli.dev>"]
@@ -8,8 +8,8 @@ repository = "https://github.com/hijriyan/jokoway"
 description = "ACME (Let's Encrypt) extension for Jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-alpha.5" }
-jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-alpha.2" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-rc.1" }
+jokoway-rules = { path = "../jokoway-rules", version = "0.1.0-rc.1" }
 instant-acme = "0.8.4"
 pingora = { workspace = true }
 async-trait = { workspace = true }
