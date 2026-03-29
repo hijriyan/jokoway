@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://crates.io/crates/jokoway"><img src="https://img.shields.io/crates/v/jokoway" alt="Crates.io Version"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://deepwiki.com/hijriyan/jokoway"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 Jokoway is a high-performance API Gateway built on Pingora (Rust) with dead-simple YAML configs. Inspired by Traefik’s expressive routing rules and Kong’s DB-less declarative configuration model.
