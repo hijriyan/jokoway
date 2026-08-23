@@ -1,9 +1,9 @@
 use crate::config::models::JokowayConfig;
 use crate::prelude::{core::*, *};
 use crate::server::context::Context;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::TokioResolver;
 use hickory_resolver::config::{
-    LookupIpStrategy, NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
+    LookupIpStrategy, NameServerConfig, ConnectionConfig, ResolveHosts, GOOGLE, ResolverConfig, ResolverOpts,
 };
 use hickory_resolver::system_conf;
 
@@ -17,7 +17,7 @@ pub trait DnsResolveImpl: Send + Sync {
 }
 
 struct HickoryDnsResolver {
-    resolver: Arc<TokioAsyncResolver>,
+    resolver: Arc<TokioResolver>,
 }
 
 #[async_trait::async_trait]
@@ -34,7 +34,7 @@ impl HickoryDnsResolver {
     fn new(config: &JokowayConfig) -> Self {
         let dns_settings = config.dns.as_ref();
         let (resolver_config, opts) = if let Some(dns) = dns_settings {
-            let mut conf = ResolverConfig::new();
+            let mut conf = ResolverConfig::from_parts(None, vec![], vec![]);
             let mut opts = ResolverOpts::default();
 
             // If system_conf is true, start with system resolver and merge user config
@@ -65,8 +65,11 @@ impl HickoryDnsResolver {
                         log::warn!("Invalid nameserver: {}", ns);
                         continue;
                     };
-                    conf.add_name_server(NameServerConfig::new(socket, Protocol::Udp));
-                    conf.add_name_server(NameServerConfig::new(socket, Protocol::Tcp));
+                    let mut udp = ConnectionConfig::udp();
+                    udp.port = socket.port();
+                    let mut tcp = ConnectionConfig::tcp();
+                    tcp.port = socket.port();
+                    conf.add_name_server(NameServerConfig::new(socket.ip(), true, vec![udp, tcp]));
                 }
                 log::debug!("Added {} user-specified nameservers", nameservers.len());
             }
@@ -94,9 +97,9 @@ impl HickoryDnsResolver {
                 };
             }
             if let Some(cache_size) = dns.cache_size {
-                opts.cache_size = cache_size;
+                opts.cache_size = cache_size as u64;
             }
-            opts.use_hosts_file = dns.use_hosts_file;
+            opts.use_hosts_file = if dns.use_hosts_file { ResolveHosts::Always } else { ResolveHosts::Never };
 
             (conf, opts)
         } else {
@@ -113,12 +116,17 @@ impl HickoryDnsResolver {
                         "Failed to read system DNS config: {}, falling back to Google DNS",
                         e
                     );
-                    (ResolverConfig::google(), ResolverOpts::default())
+                    (ResolverConfig::udp_and_tcp(&GOOGLE), ResolverOpts::default())
                 }
             }
         };
 
-        let resolver = TokioAsyncResolver::tokio(resolver_config, opts);
+        let mut builder = TokioResolver::builder_with_config(
+            resolver_config,
+            hickory_resolver::net::runtime::TokioRuntimeProvider::default(),
+        );
+        *builder.options_mut() = opts;
+        let resolver = builder.build().unwrap();
         Self {
             resolver: Arc::new(resolver),
         }
@@ -207,7 +215,7 @@ mod tests {
             ..Default::default()
         };
 
-        // We can't easily inspect the internal state of ResolverOpts from the Arc<TokioAsyncResolver>
+        // We can't easily inspect the internal state of ResolverOpts from the Arc<TokioResolver>
         // But we can ensure that new() runs without panic and creates a resolver.
         let _resolver = DnsResolver::new(&config);
 

@@ -28,9 +28,8 @@ dashmap = "6.1.0"
 x509-parser = "0.18.0"
 boring = "4"
 flate2 = "1.1.9"
-hickory-resolver = { version = "0.24", features = [
+hickory-resolver = { version = "0.26", features = [
     "tokio",
-    "tokio-runtime",
     "system-config",
 ] }
 axum = "0.8"
