@@ -1,4 +1,4 @@
-use crate::config::models::JokowayConfig;
+use crate::config::models::{JokowayConfig, LoadBalancingConfig, LoadBalancingStrategy};
 use crate::error::JokowayError;
 use crate::extensions::dns::DnsResolver;
 use crate::prelude::{core::*, *};
@@ -8,33 +8,158 @@ use crate::server::proxy::{CachedPeerConfig, merge_peer_options};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use pingora::lb::Backends;
 use pingora::lb::discovery::ServiceDiscovery;
-use pingora::lb::{LoadBalancer, selection::RoundRobin};
+use pingora::lb::selection::{Consistent, FNVHash, Random, RoundRobin};
+use pingora::lb::{Backend, Backends, LoadBalancer};
 use pingora::server::ShutdownWatch;
 use pingora::services::background::{BackgroundService, GenBackgroundService};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+pub struct RuntimeLoadBalancer {
+    config: LoadBalancingConfig,
+    inner: RuntimeLoadBalancerInner,
+}
+
+enum RuntimeLoadBalancerInner {
+    RoundRobin(LoadBalancer<RoundRobin>),
+    Random(LoadBalancer<Random>),
+    FnvHash(LoadBalancer<FNVHash>),
+    Consistent(LoadBalancer<Consistent>),
+}
+
+impl RuntimeLoadBalancer {
+    fn from_backends(backends: Backends, config: LoadBalancingConfig) -> Self {
+        let inner = match config.strategy.clone() {
+            LoadBalancingStrategy::RoundRobin => {
+                RuntimeLoadBalancerInner::RoundRobin(LoadBalancer::from_backends(backends))
+            }
+            LoadBalancingStrategy::Random => {
+                RuntimeLoadBalancerInner::Random(LoadBalancer::from_backends(backends))
+            }
+            LoadBalancingStrategy::FnvHash => {
+                RuntimeLoadBalancerInner::FnvHash(LoadBalancer::from_backends(backends))
+            }
+            LoadBalancingStrategy::Consistent => {
+                RuntimeLoadBalancerInner::Consistent(LoadBalancer::from_backends(backends))
+            }
+        };
+
+        Self { config, inner }
+    }
+
+    pub fn config(&self) -> &LoadBalancingConfig {
+        &self.config
+    }
+
+    pub fn requires_selection_key(&self) -> bool {
+        matches!(
+            self.config.strategy,
+            LoadBalancingStrategy::FnvHash | LoadBalancingStrategy::Consistent
+        )
+    }
+
+    pub fn select(&self, key: &[u8], max_iterations: usize) -> Option<Backend> {
+        match &self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.select(key, max_iterations),
+            RuntimeLoadBalancerInner::Random(lb) => lb.select(key, max_iterations),
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.select(key, max_iterations),
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.select(key, max_iterations),
+        }
+    }
+
+    pub async fn update(&self) -> Result<(), Box<pingora::Error>> {
+        match &self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.update().await,
+            RuntimeLoadBalancerInner::Random(lb) => lb.update().await,
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.update().await,
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.update().await,
+        }
+    }
+
+    pub fn update_frequency(&self) -> Option<Duration> {
+        match &self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.update_frequency,
+            RuntimeLoadBalancerInner::Random(lb) => lb.update_frequency,
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.update_frequency,
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.update_frequency,
+        }
+    }
+
+    pub fn health_check_frequency(&self) -> Option<Duration> {
+        match &self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.health_check_frequency,
+            RuntimeLoadBalancerInner::Random(lb) => lb.health_check_frequency,
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.health_check_frequency,
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.health_check_frequency,
+        }
+    }
+
+    pub fn set_update_frequency(&mut self, frequency: Option<Duration>) {
+        match &mut self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.update_frequency = frequency,
+            RuntimeLoadBalancerInner::Random(lb) => lb.update_frequency = frequency,
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.update_frequency = frequency,
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.update_frequency = frequency,
+        }
+    }
+
+    pub fn set_health_check_frequency(&mut self, frequency: Option<Duration>) {
+        match &mut self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.health_check_frequency = frequency,
+            RuntimeLoadBalancerInner::Random(lb) => lb.health_check_frequency = frequency,
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.health_check_frequency = frequency,
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.health_check_frequency = frequency,
+        }
+    }
+
+    pub fn set_health_check(
+        &mut self,
+        health_check: Box<dyn pingora::lb::health_check::HealthCheck + Send + Sync + 'static>,
+    ) {
+        match &mut self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.set_health_check(health_check),
+            RuntimeLoadBalancerInner::Random(lb) => lb.set_health_check(health_check),
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.set_health_check(health_check),
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.set_health_check(health_check),
+        }
+    }
+
+    pub async fn run_health_check(&self, parallel: bool) {
+        self.backends().run_health_check(parallel).await;
+    }
+
+    pub fn backends(&self) -> &Backends {
+        match &self.inner {
+            RuntimeLoadBalancerInner::RoundRobin(lb) => lb.backends(),
+            RuntimeLoadBalancerInner::Random(lb) => lb.backends(),
+            RuntimeLoadBalancerInner::FnvHash(lb) => lb.backends(),
+            RuntimeLoadBalancerInner::Consistent(lb) => lb.backends(),
+        }
+    }
+}
+
 pub struct LbWrapper {
-    pub lb: Arc<LoadBalancer<RoundRobin>>,
+    pub name: String,
+    pub lb: Arc<RuntimeLoadBalancer>,
     pub cancellation_token: CancellationToken,
 }
 
 #[async_trait]
 impl BackgroundService for LbWrapper {
     async fn start(&self, shutdown: ShutdownWatch) {
-        // Create a local watch channel to control the inner lb.start() lifecycle
+        // Create a local watch channel to control the maintenance loop lifecycle.
         let (tx, rx) = tokio::sync::watch::channel(false);
 
-        // 1. Start Pingora's LB background task (Health Checks) in a separate task
-        // We wrap it in a spawn so it doesn't block OUR keep-alive loop if it exits early
-        // (which happens when no health checks are configured).
+        // Start the local LB maintenance loop in a separate task so this wrapper can
+        // keep the Pingora background service alive until shutdown or cancellation.
         let lb = self.lb.clone();
+        let name = self.name.clone();
         tokio::spawn(async move {
-            lb.start(rx).await;
+            run_load_balancer_background_loop(name, lb, rx).await;
         });
 
         // 2. Run our keep-alive loop to ensure the service wrapper stays active
@@ -56,10 +181,35 @@ impl BackgroundService for LbWrapper {
 
 pub type LbBackgroundService = GenBackgroundService<LbWrapper>;
 
-fn compile_upstream(
+fn split_host_port(host: &str) -> (&str, Option<u16>) {
+    if let Some(rest) = host.strip_prefix('[')
+        && let Some(end) = rest.find(']')
+    {
+        let host_part = &rest[..end];
+        let after_bracket = &rest[end + 1..];
+        let port = after_bracket
+            .strip_prefix(':')
+            .and_then(|port| port.parse::<u16>().ok());
+        return (host_part, port);
+    }
+
+    if let Some((host_part, port)) = host.rsplit_once(':')
+        && !host_part.contains(':')
+    {
+        return (host_part, port.parse::<u16>().ok());
+    }
+
+    (host, None)
+}
+
+fn load_balancer_needs_background_task(lb: &RuntimeLoadBalancer) -> bool {
+    lb.update_frequency().is_some() || lb.health_check_frequency().is_some()
+}
+
+async fn compile_upstream(
     upstream: &crate::config::models::Upstream,
     dns_resolver: Arc<DnsResolver>,
-) -> Result<Arc<LoadBalancer<RoundRobin>>, JokowayError> {
+) -> Result<Arc<RuntimeLoadBalancer>, JokowayError> {
     if upstream.servers.is_empty() {
         return Err(JokowayError::Upstream(
             "Cannot create load balancer with no servers".into(),
@@ -72,26 +222,25 @@ fn compile_upstream(
         let mut merged_options =
             merge_peer_options(upstream.peer_options.as_ref(), server.peer_options.as_ref());
 
+        let (host_only, port) = split_host_port(&server.host);
+
         // Smart SNI Fallback
-        if merged_options.sni.is_none() {
-            let host_only = server.host.split(':').next().unwrap_or(&server.host);
-            if host_only.parse::<std::net::IpAddr>().is_err() {
-                merged_options.sni = Some(host_only.to_string());
-                log::debug!(
-                    "Automatically setting SNI to '{}' for upstream {}",
-                    host_only,
-                    upstream.name
-                );
-            }
+        if merged_options.sni.is_none()
+            && !host_only.is_empty()
+            && host_only.parse::<std::net::IpAddr>().is_err()
+        {
+            merged_options.sni = Some(host_only.to_string());
+            log::debug!(
+                "Automatically setting SNI to '{}' for upstream {}",
+                host_only,
+                upstream.name
+            );
         }
 
         // Determine TLS based on config or port 443 (if not specified)
-        let is_tls = server.tls.unwrap_or_else(|| {
-            let port_part = server.host.split(':').nth(1);
-            port_part == Some("443")
-        });
+        let is_tls = server.tls.unwrap_or(port == Some(443));
 
-        match CachedPeerConfig::new(merged_options, is_tls) {
+        match CachedPeerConfig::new(merged_options, is_tls).await {
             Ok(cached_config) => {
                 server_configs.push((server.clone(), cached_config));
             }
@@ -114,11 +263,17 @@ fn compile_upstream(
     let discovery: Box<dyn ServiceDiscovery + Send + Sync> =
         Box::new(JokowayUpstreamDiscovery::new(server_configs, dns_resolver));
     let backends = Backends::new(discovery);
-    let mut load_balancer = LoadBalancer::from_backends(backends);
+    let mut load_balancer = RuntimeLoadBalancer::from_backends(backends, upstream.lb.clone());
 
     // Set update frequency from config if specified
     if let Some(freq_secs) = upstream.update_frequency {
-        load_balancer.update_frequency = Some(Duration::from_secs(freq_secs));
+        if freq_secs == 0 {
+            return Err(JokowayError::Upstream(format!(
+                "update_frequency for upstream '{}' must be greater than 0 seconds",
+                upstream.name
+            )));
+        }
+        load_balancer.set_update_frequency(Some(Duration::from_secs(freq_secs)));
         log::debug!(
             "Configured update frequency for upstream '{}': {}s",
             upstream.name,
@@ -129,11 +284,17 @@ fn compile_upstream(
     // Configure health check if specified
     if let Some(hc_config) = &upstream.health_check {
         use crate::server::health::create_health_check;
-        use std::time::Duration;
+
+        if hc_config.interval == 0 {
+            return Err(JokowayError::Upstream(format!(
+                "health_check.interval for upstream '{}' must be greater than 0 seconds",
+                upstream.name
+            )));
+        }
 
         let health_check = create_health_check(hc_config);
         load_balancer.set_health_check(health_check);
-        load_balancer.health_check_frequency = Some(Duration::from_secs(hc_config.interval));
+        load_balancer.set_health_check_frequency(Some(Duration::from_secs(hc_config.interval)));
 
         log::info!(
             "Configured {:?} health check for upstream '{}' (interval: {}s, timeout: {}s)",
@@ -147,53 +308,83 @@ fn compile_upstream(
     Ok(Arc::new(load_balancer))
 }
 
+async fn run_load_balancer_background_loop(
+    name: String,
+    lb: Arc<RuntimeLoadBalancer>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    log::info!("Starting background task for upstream: {}", name);
+    // reference: https://docs.rs/pingora-load-balancing/latest/src/pingora_load_balancing/background.rs.html
+    const NEVER: Duration = Duration::from_secs(u32::MAX as u64);
+    let mut now = Instant::now();
+    // run update and health check once
+    let mut next_update = now;
+    let mut next_health_check = now;
+
+    loop {
+        if *shutdown.borrow() {
+            log::info!("Background task cancelled for upstream: {}", name);
+            break;
+        }
+
+        if next_update <= now {
+            if let Err(e) = lb.update().await {
+                log::warn!("Failed to update upstream '{}': {}", name, e);
+            }
+            next_update = now + lb.update_frequency().unwrap_or(NEVER);
+        }
+
+        if next_health_check <= now {
+            lb.run_health_check(true).await;
+            next_health_check = now + lb.health_check_frequency().unwrap_or(NEVER);
+        }
+
+        if lb.update_frequency().is_none() && lb.health_check_frequency().is_none() {
+            return;
+        }
+
+        let to_wake = std::cmp::min(next_update, next_health_check);
+        tokio::select! {
+            _ = shutdown.changed() => {
+                if *shutdown.borrow() {
+                    log::info!("Background task cancelled for upstream: {}", name);
+                    break;
+                }
+            }
+            _ = tokio::time::sleep_until(to_wake.into()) => {}
+        }
+        now = Instant::now();
+    }
+}
+
 fn spawn_upstream_background_task(
     name: String,
-    lb: Arc<LoadBalancer<RoundRobin>>,
+    lb: Arc<RuntimeLoadBalancer>,
     token: CancellationToken,
 ) {
     tokio::spawn(async move {
-        log::info!("Starting background task for upstream: {}", name);
-        // reference: https://docs.rs/pingora-load-balancing/latest/src/pingora_load_balancing/background.rs.html
-        const NEVER: Duration = Duration::from_secs(u32::MAX as u64);
-        let mut now = Instant::now();
-        // run update and health check once
-        let mut next_update = now;
-        let mut next_health_check = now;
-        loop {
-            if token.is_cancelled() {
-                log::info!("Background task cancelled for upstream: {}", name);
-                break;
-            }
-            if next_update <= now {
-                // TODO: log err
-                let _ = lb.update().await;
-                next_update = now + lb.update_frequency.unwrap_or(NEVER);
-            }
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let background_name = name.clone();
+        let background_lb = lb.clone();
+        let handle = tokio::spawn(async move {
+            run_load_balancer_background_loop(background_name, background_lb, rx).await;
+        });
 
-            if next_health_check <= now {
-                lb.backends().run_health_check(true).await;
-                next_health_check = now + lb.health_check_frequency.unwrap_or(NEVER);
-            }
-
-            if lb.update_frequency.is_none() && lb.health_check_frequency.is_none() {
-                return;
-            }
-            let to_wake = std::cmp::min(next_update, next_health_check);
-            tokio::time::sleep_until(to_wake.into()).await;
-            now = Instant::now();
-        }
+        token.cancelled().await;
+        let _ = tx.send(true);
+        let _ = handle.await;
     });
 }
 
 pub struct UpstreamManager {
-    pub load_balancers: ArcSwap<HashMap<String, Arc<LoadBalancer<RoundRobin>>>>,
+    pub load_balancers: ArcSwap<HashMap<String, Arc<RuntimeLoadBalancer>>>,
     // Track cancellation tokens for background tasks
     cancellation_tokens: Arc<DashMap<String, CancellationToken>>,
+    mutation_lock: Mutex<()>,
 }
 
 impl UpstreamManager {
-    pub fn new(app_ctx: &AppContext) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
+    pub async fn new(app_ctx: &AppContext) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
             .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".into()))?;
@@ -207,7 +398,7 @@ impl UpstreamManager {
 
         // Create load balancers for each upstream
         for upstream in &config.upstreams {
-            let lb_arc = match compile_upstream(upstream, dns_resolver.clone()) {
+            let lb_arc = match compile_upstream(upstream, dns_resolver.clone()).await {
                 Ok(lb) => lb,
                 Err(e) => {
                     log::warn!("Skipping upstream {}: {}", upstream.name, e);
@@ -224,6 +415,7 @@ impl UpstreamManager {
             let background = GenBackgroundService::new(
                 format!("lb_{}", upstream.name),
                 Arc::new(LbWrapper {
+                    name: upstream.name.clone(),
                     lb: lb_arc,
                     cancellation_token: token,
                 }),
@@ -233,19 +425,20 @@ impl UpstreamManager {
         let upstream_manager = UpstreamManager {
             load_balancers: ArcSwap::from_pointee(load_balancers),
             cancellation_tokens,
+            mutation_lock: Mutex::new(()),
         };
         Ok((upstream_manager, services))
     }
 
-    pub fn get(&self, name: &str) -> Option<Arc<LoadBalancer<RoundRobin>>> {
+    pub fn get(&self, name: &str) -> Option<Arc<RuntimeLoadBalancer>> {
         self.load_balancers.load().get(name).cloned()
     }
 
     /// Manually triggers discovery for all load balancers.
     /// Useful for tests or ensuring initial state before serving.
     pub async fn update_backends(&self) {
-        let lbs = self.load_balancers.load();
-        for lb in lbs.values() {
+        let lbs: Vec<_> = self.load_balancers.load().values().cloned().collect();
+        for lb in lbs {
             let _ = lb.update().await;
         }
     }
@@ -266,7 +459,9 @@ impl UpstreamManager {
         upstream: crate::config::models::Upstream,
         dns_resolver: Arc<DnsResolver>,
     ) -> Result<(), JokowayError> {
-        // Check if upstream already exists
+        let _guard = self.mutation_lock.lock().await;
+
+        // Check if upstream already exists while holding the mutation gate.
         if self.verify_upstream(&upstream.name) {
             return Err(JokowayError::Upstream(format!(
                 "Upstream {} already exists",
@@ -274,7 +469,15 @@ impl UpstreamManager {
             )));
         }
 
-        let lb_arc = compile_upstream(&upstream, dns_resolver.clone())?;
+        let lb_arc = compile_upstream(&upstream, dns_resolver).await?;
+
+        // Trigger initial backend discovery before exposing this load balancer to requests.
+        lb_arc.update().await.map_err(|e| {
+            JokowayError::Upstream(format!(
+                "Failed initial backend discovery for upstream '{}': {}",
+                upstream.name, e
+            ))
+        })?;
 
         // Update load balancers map
         self.load_balancers.rcu(|old| {
@@ -283,15 +486,17 @@ impl UpstreamManager {
             next
         });
 
-        // Trigger initial backend discovery
-        let _ = lb_arc.update().await;
-
-        // Spawn background task
-        let token = CancellationToken::new();
-        self.cancellation_tokens
-            .insert(upstream.name.clone(), token.clone());
-
-        spawn_upstream_background_task(upstream.name.clone(), lb_arc.clone(), token);
+        // Spawn background task only if there is periodic work to do.
+        if load_balancer_needs_background_task(&lb_arc) {
+            let token = CancellationToken::new();
+            if let Some(old_token) = self
+                .cancellation_tokens
+                .insert(upstream.name.clone(), token.clone())
+            {
+                old_token.cancel();
+            }
+            spawn_upstream_background_task(upstream.name.clone(), lb_arc, token);
+        }
 
         log::info!("Added upstream: {}", upstream.name);
         Ok(())
@@ -304,7 +509,9 @@ impl UpstreamManager {
         upstream: crate::config::models::Upstream,
         dns_resolver: Arc<DnsResolver>,
     ) -> Result<(), JokowayError> {
-        // Check if upstream exists
+        let _guard = self.mutation_lock.lock().await;
+
+        // Check if upstream exists while holding the mutation gate.
         if !self.verify_upstream(name) {
             return Err(JokowayError::Upstream(format!(
                 "Upstream {} does not exist",
@@ -312,7 +519,21 @@ impl UpstreamManager {
             )));
         }
 
-        let lb_arc = compile_upstream(&upstream, dns_resolver.clone())?;
+        let lb_arc = compile_upstream(&upstream, dns_resolver).await?;
+
+        // Trigger initial backend discovery before exposing this load balancer to requests.
+        lb_arc.update().await.map_err(|e| {
+            JokowayError::Upstream(format!(
+                "Failed initial backend discovery for upstream '{}': {}",
+                name, e
+            ))
+        })?;
+
+        // Cancel old background task before publishing the replacement.
+        if let Some((_, old_token)) = self.cancellation_tokens.remove(name) {
+            old_token.cancel();
+            log::debug!("Cancelled old background task for upstream: {}", name);
+        }
 
         // Update load balancers map
         self.load_balancers.rcu(|old| {
@@ -321,29 +542,27 @@ impl UpstreamManager {
             next
         });
 
-        // Trigger initial backend discovery
-        let _ = lb_arc.update().await;
-
-        // Cancel old background task if exists
-        if let Some((_, old_token)) = self.cancellation_tokens.remove(name) {
-            old_token.cancel();
-            log::debug!("Cancelled old background task for upstream: {}", name);
+        // Spawn new background task only if there is periodic work to do.
+        if load_balancer_needs_background_task(&lb_arc) {
+            let token = CancellationToken::new();
+            if let Some(old_token) = self
+                .cancellation_tokens
+                .insert(name.to_string(), token.clone())
+            {
+                old_token.cancel();
+            }
+            spawn_upstream_background_task(name.to_string(), lb_arc, token);
         }
-
-        // Spawn new background task
-        let token = CancellationToken::new();
-        self.cancellation_tokens
-            .insert(name.to_string(), token.clone());
-
-        spawn_upstream_background_task(name.to_string(), lb_arc.clone(), token);
 
         log::info!("Updated upstream: {}", name);
         Ok(())
     }
 
     /// Remove an upstream
-    pub fn remove_upstream(&self, name: &str) -> Result<(), JokowayError> {
-        // Check if upstream exists
+    pub async fn remove_upstream(&self, name: &str) -> Result<(), JokowayError> {
+        let _guard = self.mutation_lock.lock().await;
+
+        // Check if upstream exists while holding the mutation gate.
         if !self.verify_upstream(name) {
             log::warn!("Upstream {} does not exist, skipping remove", name);
             return Ok(());
@@ -406,7 +625,10 @@ impl JokowayExtension for UpstreamExtension {
         _middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Initialize UpstreamManager
-        let (upstream_manager, lb_services) = UpstreamManager::new(app_ctx)?;
+        let (upstream_manager, lb_services) = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| handle.block_on(async { UpstreamManager::new(app_ctx).await })),
+            Err(_) => tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async { UpstreamManager::new(app_ctx).await }),
+        }?;
         app_ctx.insert(upstream_manager);
 
         // Add LB background services
@@ -430,7 +652,10 @@ impl JokowayExtension for UpstreamExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{PeerOptions, Upstream, UpstreamServer};
+    use crate::config::models::{
+        LoadBalancingConfig, LoadBalancingKey, LoadBalancingStrategy, PeerOptions, Upstream,
+        UpstreamServer,
+    };
 
     #[tokio::test]
     async fn test_sni_fallback() {
@@ -438,6 +663,7 @@ mod tests {
             upstreams: vec![
                 Upstream {
                     name: "domain_upstream".to_string(),
+                    lb: Default::default(),
                     peer_options: None,
                     servers: vec![UpstreamServer {
                         host: "example.com:443".to_string(), // Should get SNI
@@ -450,6 +676,7 @@ mod tests {
                 },
                 Upstream {
                     name: "ip_upstream".to_string(),
+                    lb: Default::default(),
                     peer_options: None,
                     servers: vec![UpstreamServer {
                         host: "127.0.0.1:8080".to_string(), // Should NOT get SNI
@@ -462,6 +689,7 @@ mod tests {
                 },
                 Upstream {
                     name: "explicit_sni".to_string(),
+                    lb: Default::default(),
                     peer_options: None,
                     servers: vec![UpstreamServer {
                         host: "example.org:443".to_string(),
@@ -477,6 +705,7 @@ mod tests {
                 },
                 Upstream {
                     name: "manual_tls_true".to_string(),
+                    lb: Default::default(),
                     peer_options: None,
                     servers: vec![UpstreamServer {
                         host: "127.0.0.1:80".to_string(), // Port 80 but TLS forced
@@ -489,6 +718,7 @@ mod tests {
                 },
                 Upstream {
                     name: "manual_tls_false".to_string(),
+                    lb: Default::default(),
                     peer_options: None,
                     servers: vec![UpstreamServer {
                         host: "127.0.0.1:443".to_string(), // Port 443 but TLS disabled
@@ -518,7 +748,7 @@ mod tests {
         let resolver = DnsResolver::new_mock(ips);
         app_ctx.insert(resolver);
 
-        let (manager, _) = UpstreamManager::new(&app_ctx).expect("Failed to create manager");
+        let (manager, _) = UpstreamManager::new(&app_ctx).await.expect("Failed to create manager");
         manager.update_backends().await;
 
         let lb_domain = manager.get("domain_upstream").unwrap();
@@ -581,5 +811,74 @@ mod tests {
             .get::<CachedPeerConfig>()
             .unwrap();
         assert!(!config_manual_false.tls); // Forced false
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_load_balancing_strategy_update() {
+        let config = JokowayConfig {
+            upstreams: vec![Upstream {
+                name: "dynamic_lb".to_string(),
+                lb: LoadBalancingConfig {
+                    strategy: LoadBalancingStrategy::RoundRobin,
+                    key: None,
+                },
+                servers: vec![UpstreamServer {
+                    host: "127.0.0.1:8080".to_string(),
+                    weight: None,
+                    tls: None,
+                    peer_options: None,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let app_ctx = AppContext::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new_mock(Default::default()));
+
+        let (manager, _) = UpstreamManager::new(&app_ctx).await.expect("Failed to create manager");
+        manager.update_backends().await;
+
+        let lb = manager.get("dynamic_lb").unwrap();
+        assert_eq!(lb.config().strategy, LoadBalancingStrategy::RoundRobin);
+
+        manager
+            .update_upstream(
+                "dynamic_lb",
+                Upstream {
+                    name: "dynamic_lb".to_string(),
+                    lb: LoadBalancingConfig {
+                        strategy: LoadBalancingStrategy::Consistent,
+                        key: Some(LoadBalancingKey::Header {
+                            name: "x-user-id".to_string(),
+                        }),
+                    },
+                    servers: vec![UpstreamServer {
+                        host: "127.0.0.1:8081".to_string(),
+                        weight: None,
+                        tls: None,
+                        peer_options: None,
+                    }],
+                    ..Default::default()
+                },
+                app_ctx.get::<DnsResolver>().unwrap(),
+            )
+            .await
+            .expect("Failed to update upstream");
+
+        let updated_lb = manager.get("dynamic_lb").unwrap();
+        assert_eq!(
+            updated_lb.config().strategy,
+            LoadBalancingStrategy::Consistent
+        );
+        assert_eq!(
+            updated_lb.config().key,
+            Some(LoadBalancingKey::Header {
+                name: "x-user-id".to_string()
+            })
+        );
+        assert!(updated_lb.requires_selection_key());
+        assert!(updated_lb.select(b"user-1", 256).is_some());
     }
 }

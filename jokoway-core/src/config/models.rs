@@ -211,11 +211,45 @@ impl Default for OpenApiSettings {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LoadBalancingStrategy {
+    #[default]
+    RoundRobin,
+    Random,
+    FnvHash,
+    Consistent,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LoadBalancingKey {
+    Header { name: String },
+    Query { name: String },
+    Cookie { name: String },
+    Path,
+    Uri,
+    Host,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "api", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
+pub struct LoadBalancingConfig {
+    #[serde(default)]
+    pub strategy: LoadBalancingStrategy,
+    pub key: Option<LoadBalancingKey>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[cfg_attr(feature = "api", derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Upstream {
     pub name: String,
+    #[serde(default)]
+    pub lb: LoadBalancingConfig,
     pub peer_options: Option<PeerOptions>,
     #[serde(default)]
     pub servers: Vec<UpstreamServer>,
@@ -325,4 +359,81 @@ pub struct HealthCheckConfig {
     pub method: Option<String>, // GET, HEAD, POST
     pub expected_status: Option<Vec<u16>>,
     pub headers: Option<HashMap<String, String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upstream_lb_defaults_to_round_robin() {
+        let upstream: Upstream = serde_yaml::from_str(
+            r#"
+name: api
+servers:
+  - host: 127.0.0.1:3000
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(upstream.lb.strategy, LoadBalancingStrategy::RoundRobin);
+        assert_eq!(upstream.lb.key, None);
+    }
+
+    #[test]
+    fn upstream_lb_accepts_consistent_header_key() {
+        let upstream: Upstream = serde_yaml::from_str(
+            r#"
+name: api
+lb:
+  strategy: consistent
+  key:
+    type: header
+    name: x-user-id
+servers:
+  - host: 127.0.0.1:3000
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(upstream.lb.strategy, LoadBalancingStrategy::Consistent);
+        assert_eq!(
+            upstream.lb.key,
+            Some(LoadBalancingKey::Header {
+                name: "x-user-id".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn upstream_lb_accepts_all_supported_strategies() {
+        for strategy in ["round_robin", "random", "fnv_hash", "consistent"] {
+            let yaml = format!(
+                r#"
+name: api
+lb:
+  strategy: {strategy}
+servers:
+  - host: 127.0.0.1:3000
+"#
+            );
+            let upstream: Upstream = serde_yaml::from_str(&yaml).unwrap();
+            assert!(!upstream.name.is_empty());
+        }
+    }
+
+    #[test]
+    fn upstream_lb_rejects_unknown_strategy() {
+        let result = serde_yaml::from_str::<Upstream>(
+            r#"
+name: api
+lb:
+  strategy: least_conn
+servers:
+  - host: 127.0.0.1:3000
+"#,
+        );
+
+        assert!(result.is_err());
+    }
 }

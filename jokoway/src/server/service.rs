@@ -122,7 +122,7 @@ fn compile_service(
         });
     }
 
-    routes.sort_by(|a, b| b.priority.cmp(&a.priority));
+    routes.sort_by_key(|b| std::cmp::Reverse(b.priority));
 
     let runtime_service = RuntimeService {
         name: service.name.clone(),

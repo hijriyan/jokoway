@@ -434,7 +434,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager, _) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).expect("Failed to create UpstreamManager");
         let upstream_manager = Arc::new(upstream_manager);
 
         // Test HTTP router (should only include HTTP-compatible services)
@@ -489,7 +489,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager, _) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).expect("Failed to create UpstreamManager");
         let upstream_manager = Arc::new(upstream_manager);
 
         // Create router with HTTP protocols
@@ -620,7 +620,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager, _) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).expect("Failed to create UpstreamManager");
         let upstream_manager = Arc::new(upstream_manager);
 
         let router = Router::new(
@@ -757,7 +757,7 @@ mod tests {
         let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
-        let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
+        let (upstream_manager, _) = tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).unwrap();
         let sm = Arc::new(ServiceManager::new(Arc::new(config)).unwrap());
 
         let router = Router::new(sm, Arc::new(upstream_manager), &HTTP_PROTOCOLS);
@@ -863,7 +863,7 @@ mod tests {
         let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
-        let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
+        let (upstream_manager, _) = tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).unwrap();
         let sm = Arc::new(ServiceManager::new(Arc::new(config)).unwrap());
         let router = Router::new(sm, Arc::new(upstream_manager), &HTTP_PROTOCOLS);
 
@@ -952,7 +952,7 @@ mod tests {
         let app_ctx = AppContext::new();
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new(&config));
-        let (upstream_manager, _) = UpstreamManager::new(&app_ctx).unwrap();
+        let (upstream_manager, _) = tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).unwrap();
         let sm = Arc::new(ServiceManager::new(Arc::new(config)).unwrap());
 
         let router = Router::new(sm, Arc::new(upstream_manager), &ALL_PROTOCOLS);

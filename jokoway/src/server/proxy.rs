@@ -1,4 +1,7 @@
-use crate::config::models::{JokowayConfig, PeerOptions as ConfigPeerOptions, TcpKeepaliveConfig};
+use crate::config::models::{
+    JokowayConfig, LoadBalancingConfig, LoadBalancingKey, PeerOptions as ConfigPeerOptions,
+    TcpKeepaliveConfig,
+};
 use crate::error::JokowayError;
 
 use crate::config::models::ServiceProtocol;
@@ -15,15 +18,76 @@ use jokoway_core::websocket::{
     WsFrame, WsOpcode, WsParseResult, encode_ws_frame_into, mask_key_from_time, parse_ws_frames,
 };
 use pingora::Error;
-use pingora::http::ResponseHeader;
+use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::http::bridge::grpc_web::GrpcWebCtx;
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::tls::{pkey::PKey, x509::X509};
 use pingora::upstreams::peer::{BasicPeer, HttpPeer, PeerOptions};
 use pingora::utils::tls::CertKey;
-use std::fs;
+use std::borrow::Cow;
+
 use std::sync::Arc;
 use std::time::Duration;
+
+fn build_load_balancing_key<'a>(
+    req: &'a RequestHeader,
+    config: &LoadBalancingConfig,
+) -> Cow<'a, str> {
+    match config.key.as_ref().unwrap_or(&LoadBalancingKey::Uri) {
+        LoadBalancingKey::Header { name } => req
+            .headers
+            .get(name.as_str())
+            .and_then(|value| value.to_str().ok())
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Borrowed("")),
+        LoadBalancingKey::Query { name } => req
+            .uri
+            .query()
+            .and_then(|query| find_query_value(query, name))
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Borrowed("")),
+        LoadBalancingKey::Cookie { name } => req
+            .headers
+            .get(http::header::COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|cookie| find_cookie_value(cookie, name))
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Borrowed("")),
+        LoadBalancingKey::Path => Cow::Borrowed(req.uri.path()),
+        LoadBalancingKey::Uri => Cow::Owned(req.uri.to_string()),
+        LoadBalancingKey::Host => req
+            .uri
+            .host()
+            .or_else(|| req.headers.get(HOST).and_then(|value| value.to_str().ok()))
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Borrowed("")),
+    }
+}
+
+fn find_query_value<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        let mut parts = pair.splitn(2, '=');
+        let key = parts.next()?;
+        if key == name {
+            Some(parts.next().unwrap_or_default())
+        } else {
+            None
+        }
+    })
+}
+
+fn find_cookie_value<'a>(cookie_header: &'a str, name: &str) -> Option<&'a str> {
+    cookie_header.split(';').find_map(|cookie| {
+        let cookie = cookie.trim();
+        let mut parts = cookie.splitn(2, '=');
+        let key = parts.next()?.trim();
+        if key == name {
+            Some(parts.next().unwrap_or_default().trim())
+        } else {
+            None
+        }
+    })
+}
 
 pub trait ConfigurablePeer {
     fn options_mut(&mut self) -> &mut PeerOptions;
@@ -52,7 +116,7 @@ pub struct CachedPeerConfig {
 }
 
 impl CachedPeerConfig {
-    pub fn new(options: ConfigPeerOptions, tls: bool) -> Result<Self, JokowayError> {
+    pub async fn new(options: ConfigPeerOptions, tls: bool) -> Result<Self, JokowayError> {
         let curves = options
             .curves
             .as_ref()
@@ -70,7 +134,7 @@ impl CachedPeerConfig {
         if let Some(cacert_path) = options.cacert.as_deref()
             && !cacert_path.is_empty()
         {
-            match load_x509_stack(cacert_path) {
+            match load_x509_stack(cacert_path).await {
                 Ok(certs) => {
                     cached.ca_certs = Some(Arc::new(certs.into_boxed_slice()));
                 }
@@ -88,7 +152,7 @@ impl CachedPeerConfig {
         ) && !cert_path.is_empty()
             && !key_path.is_empty()
         {
-            match load_client_cert_key(cert_path, key_path) {
+            match load_client_cert_key(cert_path, key_path).await {
                 Ok(cert_key) => {
                     cached.client_cert_key = Some(Arc::new(cert_key));
                 }
@@ -330,8 +394,8 @@ fn convert_tcp_keepalive(config: &TcpKeepaliveConfig) -> pingora::protocols::Tcp
     }
 }
 
-fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> {
-    let pem = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+async fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> {
+    let pem = tokio::fs::read(path).await.map_err(|e| format!("Failed to read {}: {}", path, e))?;
     let certs = X509::stack_from_pem(&pem)
         .map_err(|e| format!("Failed to parse X509 from {}: {}", path, e))?;
     if certs.is_empty() {
@@ -340,12 +404,12 @@ fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> 
     Ok(certs)
 }
 
-fn load_client_cert_key(
+async fn load_client_cert_key(
     cert_path: &str,
     key_path: &str,
 ) -> Result<CertKey, Box<dyn std::error::Error>> {
-    let certs = load_x509_stack(cert_path)?;
-    let key_pem = fs::read(key_path).map_err(|e| format!("Failed to read {}: {}", key_path, e))?;
+    let certs = load_x509_stack(cert_path).await?;
+    let key_pem = tokio::fs::read(key_path).await.map_err(|e| format!("Failed to read {}: {}", key_path, e))?;
     let key = PKey::private_key_from_pem(&key_pem)
         .map_err(|e| format!("Failed to parse private key from {}: {}", key_path, e))?;
     Ok(CertKey::new(certs, key))
@@ -460,7 +524,7 @@ impl ProxyHttp for JokowayProxy {
 
     async fn upstream_peer(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>, Box<Error>> {
         // Fast path: get upstream name and find load balancer
@@ -478,18 +542,47 @@ impl ProxyHttp for JokowayProxy {
             )
         })?;
 
-        let backend = load_balancer.select(b"", 256).ok_or_else(|| {
-            Error::explain(pingora::ErrorType::InternalError, "No available backends")
-        })?;
+        let selection_key = if load_balancer.requires_selection_key() {
+            let key = build_load_balancing_key(session.req_header(), load_balancer.config());
+            if key.is_empty() {
+                let fallback = session.req_header().uri.to_string();
+                log::debug!(
+                    "Load balancer for upstream '{}' uses {:?} but resolved an empty selection key; falling back to URI",
+                    upstream_name,
+                    load_balancer.config().strategy
+                );
+                Cow::Owned(fallback)
+            } else {
+                key
+            }
+        } else {
+            Cow::Borrowed("")
+        };
+
+        let backend = load_balancer
+            .select(selection_key.as_bytes(), 256)
+            .ok_or_else(|| {
+                Error::explain(pingora::ErrorType::InternalError, "No available backends")
+            })?;
 
         // Get cached config with pre-loaded certificates
-        let cached_config = backend.ext.get::<CachedPeerConfig>().cloned();
-        let tls = cached_config.as_ref().unwrap().tls;
+        let cached_config = backend
+            .ext
+            .get::<CachedPeerConfig>()
+            .cloned()
+            .ok_or_else(|| {
+                Error::explain(
+                    pingora::ErrorType::InternalError,
+                    format!(
+                        "Cached peer config missing for selected backend in upstream: {}",
+                        upstream_name
+                    ),
+                )
+            })?;
+        let tls = cached_config.tls;
         let mut sni = String::new();
 
-        if let Some(config) = cached_config.as_ref()
-            && let Some(option_sni) = &config.options.sni
-        {
+        if let Some(option_sni) = &cached_config.options.sni {
             sni = option_sni.clone();
             ctx.rewrite_host = Some(sni.clone());
         }
@@ -497,10 +590,8 @@ impl ProxyHttp for JokowayProxy {
         let mut peer = HttpPeer::new(backend, tls, sni);
 
         // Apply cached configuration (includes pre-loaded certificates)
-        if let Some(config) = cached_config.as_ref() {
-            config.apply_to_peer(&mut peer);
-            config.apply_client_cert(&mut peer);
-        }
+        cached_config.apply_to_peer(&mut peer);
+        cached_config.apply_client_cert(&mut peer);
 
         // Force H2 ALPN for gRPC and gRPC-Web bridging
         if ctx.grpc_mode != crate::server::context::GrpcMode::None {
@@ -1060,7 +1151,9 @@ fn close_frame(payload: Option<Vec<u8>>) -> WsFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::models::{JokowayConfig, Upstream, UpstreamServer};
+    use crate::config::models::{
+        JokowayConfig, LoadBalancingConfig, LoadBalancingStrategy, Upstream, UpstreamServer,
+    };
     use crate::extensions::dns::DnsResolver;
     use crate::server::context::{AppContext, Context, RequestContext};
     use crate::server::router::{ALL_PROTOCOLS, Router};
@@ -1148,6 +1241,7 @@ mod tests {
 
         let upstream = Upstream {
             name: "test_upstream".to_string(),
+            lb: Default::default(),
             peer_options: None,
             servers: vec![
                 UpstreamServer {
@@ -1186,7 +1280,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1208,8 +1302,6 @@ mod tests {
 
         // Verify all servers are included
         let load_balancer = upstream_manager.get("test_upstream").unwrap();
-        let backends = load_balancer.backends().get_backend();
-        assert_eq!(backends.len(), 3);
         let backends = load_balancer.backends().get_backend();
         assert_eq!(backends.len(), 3);
 
@@ -1234,6 +1326,7 @@ mod tests {
 
         let upstream = Upstream {
             name: "test_upstream".to_string(),
+            lb: Default::default(),
             peer_options: None,
             servers: vec![
                 UpstreamServer {
@@ -1265,7 +1358,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1295,15 +1388,255 @@ mod tests {
 
         // Verify both backends are selected
         let unique_selections: std::collections::HashSet<_> = selections.iter().collect();
-        assert!(!unique_selections.is_empty()); // Should have at least 1 unique backend
+        assert_eq!(unique_selections.len(), 2);
 
         // With round-robin, we should see both backends being selected
         let has_8080 = selections.iter().any(|s: &String| s.contains("8080"));
         let has_8081 = selections.iter().any(|s: &String| s.contains("8081"));
         assert!(
-            has_8080 || has_8081,
-            "Should select from available backends"
+            has_8080 && has_8081,
+            "Should select both available backends"
         );
+    }
+
+    #[tokio::test]
+    async fn test_load_balancer_selection_random() {
+        // Create a test configuration
+        let mut config = JokowayConfig::default();
+
+        let upstream = Upstream {
+            name: "test_upstream_random".to_string(),
+            lb: LoadBalancingConfig {
+                strategy: LoadBalancingStrategy::Random,
+                key: None,
+            },
+            peer_options: None,
+            servers: vec![
+                UpstreamServer {
+                    host: "127.0.0.1:8080".to_string(),
+                    weight: Some(1),
+                    tls: None,
+                    peer_options: None,
+                },
+                UpstreamServer {
+                    host: "127.0.0.1:8081".to_string(),
+                    weight: Some(1),
+                    tls: None,
+                    peer_options: None,
+                },
+            ],
+            health_check: None,
+            update_frequency: None,
+        };
+
+        config.upstreams.push(upstream);
+        let config_arc = Arc::new(config.clone());
+
+        let service_manager = Arc::new(
+            ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
+        );
+
+        let app_ctx = AppContext::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new(&config));
+
+        let (upstream_manager_struct, _services) =
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
+        upstream_manager_struct.update_backends().await;
+        app_ctx.insert(upstream_manager_struct);
+        let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
+
+        let router = Router::new(
+            service_manager,
+            upstream_manager.clone(),
+            &ALL_PROTOCOLS,
+            // &config,
+        );
+
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), false)
+            .expect("Failed to create JokowayProxy");
+
+        let load_balancer = upstream_manager.get("test_upstream_random").unwrap();
+
+        let mut selections = Vec::new();
+        for _ in 0..100 {
+            if let Some(backend) = load_balancer.select(b"", 256) {
+                selections.push(backend.addr.to_string());
+            }
+        }
+
+        assert!(!selections.is_empty());
+        let unique_selections: std::collections::HashSet<_> = selections.iter().collect();
+        assert_eq!(unique_selections.len(), 2, "Random strategy should eventually pick both backends");
+    }
+
+    #[tokio::test]
+    async fn test_load_balancer_selection_fnvhash() {
+        // Create a test configuration
+        let mut config = JokowayConfig::default();
+
+        let upstream = Upstream {
+            name: "test_upstream_fnvhash".to_string(),
+            lb: LoadBalancingConfig {
+                strategy: LoadBalancingStrategy::FnvHash,
+                key: None,
+            },
+            peer_options: None,
+            servers: vec![
+                UpstreamServer {
+                    host: "127.0.0.1:8080".to_string(),
+                    weight: Some(1),
+                    tls: None,
+                    peer_options: None,
+                },
+                UpstreamServer {
+                    host: "127.0.0.1:8081".to_string(),
+                    weight: Some(1),
+                    tls: None,
+                    peer_options: None,
+                },
+            ],
+            health_check: None,
+            update_frequency: None,
+        };
+
+        config.upstreams.push(upstream);
+        let config_arc = Arc::new(config.clone());
+
+        let service_manager = Arc::new(
+            ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
+        );
+
+        let app_ctx = AppContext::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new(&config));
+
+        let (upstream_manager_struct, _services) =
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
+        upstream_manager_struct.update_backends().await;
+        app_ctx.insert(upstream_manager_struct);
+        let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
+
+        let router = Router::new(
+            service_manager,
+            upstream_manager.clone(),
+            &ALL_PROTOCOLS,
+            // &config,
+        );
+
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), false)
+            .expect("Failed to create JokowayProxy");
+
+        let load_balancer = upstream_manager.get("test_upstream_fnvhash").unwrap();
+
+        // With a hashing algorithm, the same key should result in the same backend
+        let key1 = b"some-hash-key";
+        
+        let mut selection1 = None;
+        if let Some(backend) = load_balancer.select(key1, 256) {
+            selection1 = Some(backend.addr.to_string());
+        }
+
+        let mut selection2 = None;
+        if let Some(backend) = load_balancer.select(key1, 256) {
+            selection2 = Some(backend.addr.to_string());
+        }
+        assert_eq!(selection1, selection2, "FnvHash should select the same backend for the same key");
+
+        // The logic for different keys hitting different backends depends on the hash. 
+        // Let's test a bunch of different keys and ensure we hit both backends eventually.
+        let mut unique_selections = std::collections::HashSet::new();
+        for i in 0..100 {
+            let key = format!("key-{}", i);
+            if let Some(backend) = load_balancer.select(key.as_bytes(), 256) {
+                unique_selections.insert(backend.addr.to_string());
+            }
+        }
+        assert_eq!(unique_selections.len(), 2, "FnvHash should distribute across both backends");
+    }
+
+    #[tokio::test]
+    async fn test_load_balancer_selection_consistent() {
+        // Create a test configuration
+        let mut config = JokowayConfig::default();
+
+        let upstream = Upstream {
+            name: "test_upstream_consistent".to_string(),
+            lb: LoadBalancingConfig {
+                strategy: LoadBalancingStrategy::Consistent,
+                key: None,
+            },
+            peer_options: None,
+            servers: vec![
+                UpstreamServer {
+                    host: "127.0.0.1:8080".to_string(),
+                    weight: Some(1),
+                    tls: None,
+                    peer_options: None,
+                },
+                UpstreamServer {
+                    host: "127.0.0.1:8081".to_string(),
+                    weight: Some(1),
+                    tls: None,
+                    peer_options: None,
+                },
+            ],
+            health_check: None,
+            update_frequency: None,
+        };
+
+        config.upstreams.push(upstream);
+        let config_arc = Arc::new(config.clone());
+
+        let service_manager = Arc::new(
+            ServiceManager::new(config_arc.clone()).expect("Failed to create ServiceManager"),
+        );
+
+        let app_ctx = AppContext::new();
+        app_ctx.insert(config.clone());
+        app_ctx.insert(DnsResolver::new(&config));
+
+        let (upstream_manager_struct, _services) =
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
+        upstream_manager_struct.update_backends().await;
+        app_ctx.insert(upstream_manager_struct);
+        let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
+
+        let router = Router::new(
+            service_manager,
+            upstream_manager.clone(),
+            &ALL_PROTOCOLS,
+            // &config,
+        );
+
+        let _proxy = JokowayProxy::new(router, Arc::new(app_ctx.clone()), Vec::new(), false)
+            .expect("Failed to create JokowayProxy");
+
+        let load_balancer = upstream_manager.get("test_upstream_consistent").unwrap();
+
+        // Consistent hashing should return the same backend for the same key
+        let key1 = b"consistent-key-1";
+        
+        let mut selection1 = None;
+        if let Some(backend) = load_balancer.select(key1, 256) {
+            selection1 = Some(backend.addr.to_string());
+        }
+
+        let mut selection2 = None;
+        if let Some(backend) = load_balancer.select(key1, 256) {
+            selection2 = Some(backend.addr.to_string());
+        }
+        assert_eq!(selection1, selection2, "Consistent should select the same backend for the same key");
+
+        // Verify distribution across backends
+        let mut unique_selections = std::collections::HashSet::new();
+        for i in 0..100 {
+            let key = format!("consistent-key-{}", i);
+            if let Some(backend) = load_balancer.select(key.as_bytes(), 256) {
+                unique_selections.insert(backend.addr.to_string());
+            }
+        }
+        assert_eq!(unique_selections.len(), 2, "Consistent should distribute across both backends");
     }
 
     #[test]
@@ -1312,6 +1645,7 @@ mod tests {
 
         let upstream = Upstream {
             name: "empty_upstream".to_string(),
+            lb: Default::default(),
             peer_options: None,
             servers: vec![], // Empty servers list
             health_check: None,
@@ -1330,7 +1664,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).expect("Failed to create UpstreamManager");
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
 

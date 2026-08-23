@@ -33,9 +33,13 @@ impl HealthCheck for JokowayHttpHealthCheck {
     async fn check(&self, backend: &Backend) -> Result<(), Box<Error>> {
         let cached_config = backend.ext.get::<CachedPeerConfig>();
 
-        // DashMap operations can't hold reference across await
-        if let Some(c) = self.checks.get(&backend.addr) {
-            return c.value().check(backend).await;
+        // Clone the cached check out of DashMap before awaiting so the map guard is dropped.
+        if let Some(check) = self
+            .checks
+            .get(&backend.addr)
+            .map(|entry| entry.value().clone())
+        {
+            return check.check(backend).await;
         }
 
         // Create new check if missing
@@ -176,13 +180,17 @@ impl JokowayTcpHealthCheck {
 #[async_trait]
 impl HealthCheck for JokowayTcpHealthCheck {
     async fn check(&self, backend: &Backend) -> Result<(), Box<Error>> {
-        if let Some(c) = self.checks.get(&backend.addr) {
-            return c.value().check(backend).await;
+        if let Some(check) = self
+            .checks
+            .get(&backend.addr)
+            .map(|entry| entry.value().clone())
+        {
+            return check.check(backend).await;
         }
 
         let cached_config = backend.ext.get::<CachedPeerConfig>();
         let new_check = self.create_check(cached_config);
-        let check_arc = Arc::from(*new_check);
+        let check_arc: Arc<TcpHealthCheck> = Arc::from(new_check);
 
         self.checks.insert(backend.addr.clone(), check_arc.clone());
 
