@@ -206,7 +206,7 @@ fn load_balancer_needs_background_task(lb: &RuntimeLoadBalancer) -> bool {
     lb.update_frequency().is_some() || lb.health_check_frequency().is_some()
 }
 
-fn compile_upstream(
+async fn compile_upstream(
     upstream: &crate::config::models::Upstream,
     dns_resolver: Arc<DnsResolver>,
 ) -> Result<Arc<RuntimeLoadBalancer>, JokowayError> {
@@ -240,7 +240,7 @@ fn compile_upstream(
         // Determine TLS based on config or port 443 (if not specified)
         let is_tls = server.tls.unwrap_or(port == Some(443));
 
-        match CachedPeerConfig::new(merged_options, is_tls) {
+        match CachedPeerConfig::new(merged_options, is_tls).await {
             Ok(cached_config) => {
                 server_configs.push((server.clone(), cached_config));
             }
@@ -384,7 +384,7 @@ pub struct UpstreamManager {
 }
 
 impl UpstreamManager {
-    pub fn new(app_ctx: &AppContext) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
+    pub async fn new(app_ctx: &AppContext) -> Result<(Self, Vec<LbBackgroundService>), JokowayError> {
         let config = app_ctx
             .get::<JokowayConfig>()
             .ok_or_else(|| JokowayError::Config("JokowayConfig not found in Context".into()))?;
@@ -398,7 +398,7 @@ impl UpstreamManager {
 
         // Create load balancers for each upstream
         for upstream in &config.upstreams {
-            let lb_arc = match compile_upstream(upstream, dns_resolver.clone()) {
+            let lb_arc = match compile_upstream(upstream, dns_resolver.clone()).await {
                 Ok(lb) => lb,
                 Err(e) => {
                     log::warn!("Skipping upstream {}: {}", upstream.name, e);
@@ -469,7 +469,7 @@ impl UpstreamManager {
             )));
         }
 
-        let lb_arc = compile_upstream(&upstream, dns_resolver)?;
+        let lb_arc = compile_upstream(&upstream, dns_resolver).await?;
 
         // Trigger initial backend discovery before exposing this load balancer to requests.
         lb_arc.update().await.map_err(|e| {
@@ -519,7 +519,7 @@ impl UpstreamManager {
             )));
         }
 
-        let lb_arc = compile_upstream(&upstream, dns_resolver)?;
+        let lb_arc = compile_upstream(&upstream, dns_resolver).await?;
 
         // Trigger initial backend discovery before exposing this load balancer to requests.
         lb_arc.update().await.map_err(|e| {
@@ -625,7 +625,10 @@ impl JokowayExtension for UpstreamExtension {
         _middlewares: &mut Vec<std::sync::Arc<dyn JokowayMiddlewareDyn>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Initialize UpstreamManager
-        let (upstream_manager, lb_services) = UpstreamManager::new(app_ctx)?;
+        let (upstream_manager, lb_services) = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| handle.block_on(async { UpstreamManager::new(app_ctx).await })),
+            Err(_) => tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async { UpstreamManager::new(app_ctx).await }),
+        }?;
         app_ctx.insert(upstream_manager);
 
         // Add LB background services
@@ -745,7 +748,7 @@ mod tests {
         let resolver = DnsResolver::new_mock(ips);
         app_ctx.insert(resolver);
 
-        let (manager, _) = UpstreamManager::new(&app_ctx).expect("Failed to create manager");
+        let (manager, _) = UpstreamManager::new(&app_ctx).await.expect("Failed to create manager");
         manager.update_backends().await;
 
         let lb_domain = manager.get("domain_upstream").unwrap();
@@ -834,7 +837,7 @@ mod tests {
         app_ctx.insert(config.clone());
         app_ctx.insert(DnsResolver::new_mock(Default::default()));
 
-        let (manager, _) = UpstreamManager::new(&app_ctx).expect("Failed to create manager");
+        let (manager, _) = UpstreamManager::new(&app_ctx).await.expect("Failed to create manager");
         manager.update_backends().await;
 
         let lb = manager.get("dynamic_lb").unwrap();

@@ -80,8 +80,20 @@ async fn setup_app_and_mocks(
         }
     });
 
-    // Wait for the app to be ready
-    sleep(Duration::from_millis(500)).await;
+    // Wait for the app to be ready using a readiness probe
+    let client = Client::new();
+    let health_url = format!("http://127.0.0.1:{}/", port);
+    let mut ready = false;
+    for _ in 0..50 {
+        if client.get(&health_url).send().await.is_ok() {
+            ready = true;
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    if !ready {
+        panic!("App failed to start in time");
+    }
 
     (port, mock_server_1, mock_server_2)
 }

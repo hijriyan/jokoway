@@ -25,7 +25,7 @@ use pingora::tls::{pkey::PKey, x509::X509};
 use pingora::upstreams::peer::{BasicPeer, HttpPeer, PeerOptions};
 use pingora::utils::tls::CertKey;
 use std::borrow::Cow;
-use std::fs;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -116,7 +116,7 @@ pub struct CachedPeerConfig {
 }
 
 impl CachedPeerConfig {
-    pub fn new(options: ConfigPeerOptions, tls: bool) -> Result<Self, JokowayError> {
+    pub async fn new(options: ConfigPeerOptions, tls: bool) -> Result<Self, JokowayError> {
         let curves = options
             .curves
             .as_ref()
@@ -134,7 +134,7 @@ impl CachedPeerConfig {
         if let Some(cacert_path) = options.cacert.as_deref()
             && !cacert_path.is_empty()
         {
-            match load_x509_stack(cacert_path) {
+            match load_x509_stack(cacert_path).await {
                 Ok(certs) => {
                     cached.ca_certs = Some(Arc::new(certs.into_boxed_slice()));
                 }
@@ -152,7 +152,7 @@ impl CachedPeerConfig {
         ) && !cert_path.is_empty()
             && !key_path.is_empty()
         {
-            match load_client_cert_key(cert_path, key_path) {
+            match load_client_cert_key(cert_path, key_path).await {
                 Ok(cert_key) => {
                     cached.client_cert_key = Some(Arc::new(cert_key));
                 }
@@ -394,8 +394,8 @@ fn convert_tcp_keepalive(config: &TcpKeepaliveConfig) -> pingora::protocols::Tcp
     }
 }
 
-fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> {
-    let pem = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+async fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> {
+    let pem = tokio::fs::read(path).await.map_err(|e| format!("Failed to read {}: {}", path, e))?;
     let certs = X509::stack_from_pem(&pem)
         .map_err(|e| format!("Failed to parse X509 from {}: {}", path, e))?;
     if certs.is_empty() {
@@ -404,12 +404,12 @@ fn load_x509_stack(path: &str) -> Result<Vec<X509>, Box<dyn std::error::Error>> 
     Ok(certs)
 }
 
-fn load_client_cert_key(
+async fn load_client_cert_key(
     cert_path: &str,
     key_path: &str,
 ) -> Result<CertKey, Box<dyn std::error::Error>> {
-    let certs = load_x509_stack(cert_path)?;
-    let key_pem = fs::read(key_path).map_err(|e| format!("Failed to read {}: {}", key_path, e))?;
+    let certs = load_x509_stack(cert_path).await?;
+    let key_pem = tokio::fs::read(key_path).await.map_err(|e| format!("Failed to read {}: {}", key_path, e))?;
     let key = PKey::private_key_from_pem(&key_pem)
         .map_err(|e| format!("Failed to parse private key from {}: {}", key_path, e))?;
     Ok(CertKey::new(certs, key))
@@ -1280,7 +1280,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1358,7 +1358,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1441,7 +1441,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1512,7 +1512,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1597,7 +1597,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            UpstreamManager::new(&app_ctx).await.expect("Failed to create UpstreamManager");
         upstream_manager_struct.update_backends().await;
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
@@ -1664,7 +1664,7 @@ mod tests {
         app_ctx.insert(DnsResolver::new(&config));
 
         let (upstream_manager_struct, _services) =
-            UpstreamManager::new(&app_ctx).expect("Failed to create UpstreamManager");
+            tokio::runtime::Runtime::new().unwrap().block_on(UpstreamManager::new(&app_ctx)).expect("Failed to create UpstreamManager");
         app_ctx.insert(upstream_manager_struct);
         let upstream_manager = app_ctx.get::<UpstreamManager>().unwrap();
 
