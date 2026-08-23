@@ -1,6 +1,6 @@
 [package]
 name = "jokoway-forwarded"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 description = "Forwarded middleware for Jokoway"
 edition = "2024"
 license = "MIT"
@@ -8,7 +8,7 @@ readme = "README.md"
 repository = "https://github.com/hijriyan/jokoway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-rc.1" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-rc.2" }
 pingora = { workspace = true }
 async-trait = { workspace = true }
 log = { workspace = true }

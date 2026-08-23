@@ -1,13 +1,13 @@
 [package]
 name = "jokoway-compress"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/hijriyan/jokoway"
 description = "Compression extension for Jokoway API Gateway"
 
 [dependencies]
-jokoway-core = { path = "../jokoway-core", version = "0.1.0-rc.1" }
+jokoway-core = { path = "../jokoway-core", version = "0.1.0-rc.2" }
 pingora = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
