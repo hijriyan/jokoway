@@ -3,7 +3,6 @@ name = "jokoway-rules"
 version = "0.1.0-rc.1"
 edition = "2024"
 license = "MIT"
-authors = ["Hijriyan <april@kuli.dev>"]
 description = "Routing rules logic for Jokoway"
 repository = "https://github.com/hijriyan/jokoway"
 

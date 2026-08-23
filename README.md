@@ -442,12 +442,17 @@ The heart of Jokoway's routing engine. **Upstreams** define your backend servers
 
 #### 1. Upstreams (Backend Clusters)
 
-An upstream is a named pool of backend servers. Jokoway load-balances traffic across servers within an upstream using weighted round-robin.
+An upstream is a named pool of backend servers. Jokoway load-balances traffic across servers within an upstream using a configurable weighted strategy. The default is weighted round-robin.
 
 ```yaml
 jokoway:
   upstreams:
     - name: api_cluster
+      lb:
+        strategy: consistent
+        key:
+          type: header
+          name: x-user-id
       servers:
         - host: "10.0.0.1:3000"
           weight: 2
@@ -503,9 +508,38 @@ jokoway:
 | :--- | :---: | :--- |
 | `name` | ✅ | Unique identifier for this upstream cluster. Services reference this name via the `host` field. |
 | `servers` | ✅ | List of backend servers in this cluster. See **Server Fields** below. |
+| `lb` | ❌ | Load-balancing configuration. See **Load Balancing Fields** below. Defaults to weighted round-robin. |
 | `health_check` | ❌ | Active health monitoring configuration. See **Health Check Fields** below. |
 | `update_frequency` | ❌ | How often (in seconds) to refresh the upstream configuration dynamically. |
 | `peer_options` | ❌ | Default connection settings applied to **all** servers in this upstream. Individual servers can override these. See **Peer Options Fields** below. |
+
+##### Load Balancing Fields
+
+| Field | Required | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `strategy` | ❌ | `round_robin` | Load-balancing strategy. Supported values: `round_robin`, `random`, `fnv_hash`, and `consistent`. |
+| `key` | ❌ | `uri` | Selection key for hash-based strategies (`fnv_hash`, `consistent`). Ignored by `round_robin` and `random`. |
+
+Supported `key.type` values:
+
+| Type | Extra Fields | Description |
+| :--- | :--- | :--- |
+| `header` | `name` | Uses the value of a request header, e.g. `x-user-id`. |
+| `query` | `name` | Uses the value of a query parameter. |
+| `cookie` | `name` | Uses the value of a cookie. |
+| `path` | — | Uses the request path only. |
+| `uri` | — | Uses the full request URI. This is the default when `key` is omitted. |
+| `host` | — | Uses the URI host or `Host` header. |
+
+Example sticky load balancing by user header:
+
+```yaml
+lb:
+  strategy: consistent
+  key:
+    type: header
+    name: x-user-id
+```
 
 ##### Server Fields
 

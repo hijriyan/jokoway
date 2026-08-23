@@ -150,6 +150,9 @@ impl ApiExtension {
             // Config models
             crate::config::models::Upstream,
             crate::config::models::UpstreamServer,
+            crate::config::models::LoadBalancingConfig,
+            crate::config::models::LoadBalancingStrategy,
+            crate::config::models::LoadBalancingKey,
             crate::config::models::PeerOptions,
             crate::config::models::HealthCheckConfig,
             crate::config::models::HealthCheckType,
@@ -179,7 +182,24 @@ impl utoipa::Modify for SecurityAddon {
                         .description(Some("Basic Auth"))
                         .build(),
                 ),
-            )
+            );
+            components.add_security_scheme(
+                "api_key",
+                utoipa::openapi::security::SecurityScheme::ApiKey(
+                    utoipa::openapi::security::ApiKey::Header(
+                        utoipa::openapi::security::ApiKeyValue::new("x-api-key"),
+                    ),
+                ),
+            );
+            components.add_security_scheme(
+                "bearer_auth",
+                utoipa::openapi::security::SecurityScheme::Http(
+                    utoipa::openapi::security::HttpBuilder::new()
+                        .scheme(utoipa::openapi::security::HttpAuthScheme::Bearer)
+                        .description(Some("Bearer API token"))
+                        .build(),
+                ),
+            );
         }
     }
 }
@@ -437,7 +457,7 @@ async fn no_cache_middleware(req: Request<axum::body::Body>, next: Next) -> Resp
 }
 
 // Upstream handlers
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use x509_parser::pem::Pem;
@@ -454,16 +474,64 @@ fn validate_pem(content: &str) -> bool {
     )
 }
 
-fn get_upstream_temp_dir(upstream_name: &str) -> PathBuf {
+fn validate_upstream_temp_name(upstream_name: &str) -> Result<(), String> {
+    if upstream_name.trim().is_empty() {
+        return Err("Upstream name cannot be empty".into());
+    }
+
+    let path = Path::new(upstream_name);
+    if path.is_absolute() {
+        return Err("Upstream name cannot be an absolute path".into());
+    }
+
+    let mut components = path.components();
+    let Some(Component::Normal(name)) = components.next() else {
+        return Err(
+            "Upstream name can only contain a single safe path segment for temporary files".into(),
+        );
+    };
+
+    if components.next().is_some()
+        || name
+            .to_string_lossy()
+            .chars()
+            .any(|ch| matches!(ch, '/' | '\\' | '\0'))
+    {
+        return Err(
+            "Upstream name can only contain a single safe path segment for temporary files".into(),
+        );
+    }
+
+    Ok(())
+}
+
+fn upstream_temp_base_dir() -> PathBuf {
     let mut temp_dir = std::env::temp_dir();
     temp_dir.push("jokoway");
     temp_dir.push("upstreams");
-    temp_dir.push(upstream_name);
     temp_dir
 }
 
+fn get_upstream_temp_dir(upstream_name: &str) -> Result<PathBuf, String> {
+    validate_upstream_temp_name(upstream_name)?;
+    let mut temp_dir = upstream_temp_base_dir();
+    temp_dir.push(upstream_name);
+    Ok(temp_dir)
+}
+
 async fn cleanup_upstream_files(upstream_name: &str) {
-    let dir = get_upstream_temp_dir(upstream_name);
+    let dir = match get_upstream_temp_dir(upstream_name) {
+        Ok(dir) => dir,
+        Err(e) => {
+            log::warn!(
+                "Skipping cleanup for unsafe upstream name '{}': {}",
+                upstream_name,
+                e
+            );
+            return;
+        }
+    };
+
     if dir.exists() {
         if let Err(e) = fs::remove_dir_all(&dir).await {
             log::warn!(
@@ -482,7 +550,7 @@ async fn save_cert_to_file(
     filename: &str,
     content: &str,
 ) -> Result<String, String> {
-    let dir = get_upstream_temp_dir(upstream_name);
+    let dir = get_upstream_temp_dir(upstream_name)?;
     if !dir.exists() {
         fs::create_dir_all(&dir)
             .await
@@ -553,7 +621,7 @@ async fn process_upstream_certs(
     get,
     path = "/upstreams/list",
     tag = "upstreams",
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "List all upstreams", body = UpstreamListResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -576,7 +644,7 @@ async fn list_upstreams(
     path = "/upstreams/verify",
     tag = "upstreams",
     request_body = VerifyUpstreamRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Verify upstream existence", body = VerifyResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -600,7 +668,7 @@ async fn verify_upstream(
     path = "/upstreams/add",
     tag = "upstreams",
     request_body = AddUpstreamRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Add new upstream", body = SuccessResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -615,6 +683,8 @@ async fn add_upstream(
         .app_ctx
         .get::<UpstreamManager>()
         .ok_or_else(|| ApiError::Internal("UpstreamManager not found".into()))?;
+
+    validate_upstream_temp_name(&req.upstream.name).map_err(ApiError::BadRequest)?;
 
     let dns_resolver = state
         .app_ctx
@@ -650,7 +720,7 @@ async fn add_upstream(
     path = "/upstreams/update",
     tag = "upstreams",
     request_body = UpdateUpstreamRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Update existing upstream", body = SuccessResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -665,6 +735,14 @@ async fn update_upstream(
         .app_ctx
         .get::<UpstreamManager>()
         .ok_or_else(|| ApiError::Internal("UpstreamManager not found".into()))?;
+
+    if req.name != req.upstream.name {
+        return Err(ApiError::BadRequest(format!(
+            "Update request name '{}' must match upstream.name '{}'",
+            req.name, req.upstream.name
+        )));
+    }
+    validate_upstream_temp_name(&req.name).map_err(ApiError::BadRequest)?;
 
     let dns_resolver = state
         .app_ctx
@@ -703,7 +781,7 @@ async fn update_upstream(
     path = "/upstreams/remove",
     tag = "upstreams",
     request_body = RemoveUpstreamRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Remove upstream", body = SuccessResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -719,8 +797,11 @@ async fn remove_upstream(
         .get::<UpstreamManager>()
         .ok_or_else(|| ApiError::Internal("UpstreamManager not found".into()))?;
 
+    validate_upstream_temp_name(&req.name).map_err(ApiError::BadRequest)?;
+
     upstream_manager
         .remove_upstream(&req.name)
+        .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     // Cleanup files after successful removal from manager
@@ -737,7 +818,7 @@ async fn remove_upstream(
     get,
     path = "/services/list",
     tag = "services",
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "List all services", body = ServiceListResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -765,7 +846,7 @@ async fn list_services(
     path = "/services/verify",
     tag = "services",
     request_body = VerifyServiceRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Verify service existence", body = VerifyResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -789,7 +870,7 @@ async fn verify_service(
     path = "/services/add",
     tag = "services",
     request_body = AddServiceRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Add new service", body = SuccessResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -820,7 +901,7 @@ async fn add_service(
     path = "/services/update",
     tag = "services",
     request_body = UpdateServiceRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Update existing service", body = SuccessResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -851,7 +932,7 @@ async fn update_service(
     path = "/services/remove",
     tag = "services",
     request_body = RemoveServiceRequest,
-    security(("basic_auth" = [])),
+    security(("basic_auth" = []), ("api_key" = []), ("bearer_auth" = [])),
     responses(
         (status = 200, description = "Remove service", body = SuccessResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -955,6 +1036,7 @@ mod tests {
 
         let mut upstream = Upstream {
             name: upstream_name.to_string(),
+            lb: Default::default(),
             peer_options: Some(PeerOptions {
                 cacert: Some(valid_pem.clone()),
                 ..Default::default()

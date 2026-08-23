@@ -3,7 +3,6 @@ name = "jokoway-core"
 version = "0.1.0-rc.1"
 edition = "2024"
 license = "MIT"
-authors = ["Hijriyan <april@kuli.dev>"]
 repository = "https://github.com/hijriyan/jokoway"
 description = "Core traits and types for Jokoway API Gateway"
 
