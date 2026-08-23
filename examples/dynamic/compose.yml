@@ -5,7 +5,7 @@ services:
     image: ghcr.io/mccutchen/go-httpbin:2.20
 
   jokoway:
-    image: ghcr.io/hijriyan/jokoway:latest
+    build: ../..
     ports:
       - "2014:2014"
       - "2025:2025"
