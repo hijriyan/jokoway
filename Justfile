@@ -85,3 +85,30 @@ update-dependent crate +args="":
     else
         echo "Updated $updated Cargo.toml file(s) to version $crate_version"
     fi
+
+# Check which workspace crates are not yet published to crates.io
+check-published:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "Checking publication status on crates.io..."
+    for toml in */Cargo.toml; do
+        crate=$(grep '^name' "$toml" | head -1 | cut -d '"' -f 2)
+        version=$(grep '^version' "$toml" | head -1 | cut -d '"' -f 2)
+        if [ -z "$crate" ] || [ -z "$version" ]; then
+            continue
+        fi
+        
+        # Adding a small delay to respect crates.io API rate limits (1 req/sec)
+        sleep 1
+        
+        # Check crates.io API
+        response=$(curl -s -o /dev/null -w "%{http_code}" -A "jokoway-release-script" "https://crates.io/api/v1/crates/$crate/$version")
+        if [ "$response" = "200" ]; then
+            echo "✅ $crate v$version is already published"
+        elif [ "$response" = "404" ] || [ "$response" = "403" ]; then
+            echo "❌ $crate v$version is NOT published yet"
+        else
+            echo "⚠️  $crate v$version status unknown (HTTP $response)"
+        fi
+    done
