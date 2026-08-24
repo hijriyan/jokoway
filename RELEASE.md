@@ -28,6 +28,11 @@ just update-dependent jokoway-core
 ```
 *(This will automatically update the version of `jokoway-core` in all other `Cargo.toml` files that depend on it).*
 
+Next, ensure you also update the version label inside the `Dockerfile` to match the new version:
+```dockerfile
+LABEL org.opencontainers.image.version="X.Y.Z"
+```
+
 ### 2. Generate the Changelog
 We use `git-cliff` to automatically generate the changelog based on the commit history. The `Justfile` is configured to extract the current version directly from `jokoway/Cargo.toml` and apply it to the new changelog entries.
 

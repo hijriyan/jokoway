@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 - Bump project and crate versions to 0.1.0-rc.2
 - Add release documentation and update git-cliff configuration for automated version tagging
 - Configure Justfile to support tagged changelog generation
+- Update CHANGELOG for version 0.1.0-rc.2 release
+- Update image version to 0.1.0-rc.2 in Dockerfile
 
 ### 🐛 Bug Fixes
 
