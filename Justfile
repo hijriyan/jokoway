@@ -11,11 +11,11 @@ print-version:
 
 # Generate CHANGELOG.md from full git history
 changelog:
-    git cliff -o CHANGELOG.md
+    git cliff --tag v{{version}} -o CHANGELOG.md
 
 # Print only the latest unreleased changes
 changelog-latest:
-    git cliff --unreleased
+    git cliff --tag v{{version}} --unreleased
 
 # Build docker image
 build-image:
